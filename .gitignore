@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+
+# output generati
+tools/preview.png
+*.tmp
+
+.idea/
+.vscode/
