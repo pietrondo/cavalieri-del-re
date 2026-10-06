@@ -146,8 +146,8 @@ class Guard(Actor):
         if self.horse:
             self.horse.draw(surf, cam_x, dark=dark)
         ang, lift = self.pose()
-        img, _ = sprites.render(self.rig, ang, root=(0.0, lift - 4),
-                                dark=dark, flip=self.face < 0)
+        img, _ = sprites.render_human(self.rig, ang, (0.0, lift - 4),
+                                      dark=dark, flip=self.face < 0)
         sprites.blit(surf, img, self.rig, self.tx, self.y, flip=self.face < 0)
 
     def hurt(self, dmg, from_x):
@@ -305,8 +305,8 @@ class Knight(Actor):
     def draw(self, surf, cam_x):
         self.horse.draw(surf, cam_x)
         ang, lift = self.pose()
-        img, _ = sprites.render(self.rig, ang, root=(0.0, lift),
-                                flip=self.face < 0)
+        img, _ = sprites.render_human(self.rig, ang, (0.0, lift),
+                                      flip=self.face < 0)
         sprites.blit(surf, img, self.rig, self.x, self.y, flip=self.face < 0)
         if self.shield > 0:
             bl = 0.55 + 0.45 * math.sin(pygame.time.get_ticks() * 0.012)
