@@ -26,9 +26,9 @@ HORSE_SPEED = 5.4
 GALLOP_MUL = 1.55
 GRAV = 0.62
 JUMP_V = -13.0
-ATTACK_TIME = 0.40
-HIT_LO, HIT_HI = 0.10, 0.27
-SWORD_REACH = 72 * 1.28
+ATTACK_TIME = 0.38
+HIT_LO, HIT_HI = 0.25, 0.65
+SWORD_REACH = 78 * 1.28
 LANCE_REACH = 112 * 1.42
 INVULN = 0.80
 MOUNT_TIME = 0.50
@@ -148,28 +148,46 @@ class Guard(Actor):
 
     @property
     def tx(self):
-        return self.horse.x if self.horse else self.x
+        return self.horse.x if self.horse and self.on_horse else self.x
 
     def pose(self):
+        if self.dead:
+            return sprites.dead_pose(self.dead_t, self.on_horse)
         if self.attack > 0:
-            # couched lance: thrust, not slash
-            ang, lift = sprites.rider_pose(self.phase, riding=1.0 if self.on_horse
-                                          else 0.0, moving=0.0,
-                                          reach=ease(1.0 - self.attack))
+            if self.kind in ("rider", "spear"):
+                ang, lift = sprites.rider_pose(self.phase, riding=1.0 if self.on_horse
+                                              else 0.0, moving=0.0,
+                                              reach=ease(1.0 - self.attack))
+            else:
+                ang, lift = sprites.rider_pose(self.phase, riding=0.0, moving=0.0,
+                                              attack=self.attack)
             return ang, lift
         return sprites.rider_pose(self.phase,
                                   riding=1.0 if self.on_horse else 0.0,
                                   moving=1.0, air=0.0)
 
     def draw(self, surf, cam_x, dark=1.0):
+        alpha = 1.0
+        if self.dead and self.dead_t > 0.8:
+            alpha = max(0.0, 1.0 - (self.dead_t - 0.8) / 1.0)
+
         if self.horse:
-            self.horse.draw(surf, cam_x, dark=dark)
-        else:
-            contact_shadow(surf, self.x - cam_x, self.y, 22 * HUMAN_S)
-        ang, lift = self.pose()
-        img, _ = sprites.render_human(self.rig, ang, (0.0, lift - 4),
-                                      dark=dark, flip=self.face < 0)
-        sprites.blit(surf, img, self.rig, self.tx - cam_x, self.y)
+            h_alpha = 1.0
+            if self.dead and self.dead_t > 1.2:
+                h_alpha = max(0.0, 1.0 - (self.dead_t - 1.2) / 0.6)
+            if h_alpha > 0:
+                self.horse.draw(surf, cam_x, dark=dark)
+        if not self.on_horse:
+            contact_shadow(surf, self.x - cam_x, self.y, 22 * HUMAN_S,
+                           alpha=int(95 * alpha))
+        if alpha > 0:
+            ang, lift = self.pose()
+            img, _ = sprites.render_human(self.rig, ang,
+                                          (0.0, lift - SEAT if self.on_horse else lift),
+                                          dark=dark, flip=self.face < 0)
+            if alpha < 1.0:
+                img.set_alpha(int(255 * alpha))
+            sprites.blit(surf, img, self.rig, self.tx - cam_x, self.y)
 
     def hurt(self, dmg, from_x):
         self.hp -= dmg
@@ -181,6 +199,9 @@ class Guard(Actor):
         if self.hp <= 0:
             self.hp = 0
             self.dead = True
+            if self.horse:
+                self.on_horse = False
+                self.horse.face = -1 if from_x < self.horse.x else 1
 
 
 class Knight(Actor):
@@ -229,6 +250,8 @@ class Knight(Actor):
         self.gallop = bool(shift and self.on_horse and ax and self.state == ST_HORSE)
 
         if self.state in (ST_DEAD, ST_WIN):
+            if self.state == ST_DEAD:
+                self.dead_t += dt
             return
 
         if self.attack > 0:
@@ -312,20 +335,28 @@ class Knight(Actor):
         if self.hp <= 0:
             self.hp = 0
             self.state = ST_DEAD
+            self.dead = True
+            self.dead_t = 0.0
+            if self.on_horse:
+                self.on_horse = False
         return True
 
     # -- pose -------------------------------------------------------------
     def pose(self):
-        riding = 1.0 if self.state in (ST_HORSE, ST_MOUNT) else 0.0
+        if self.state == ST_DEAD:
+            return sprites.dead_pose(self.dead_t, self.on_horse)
+        riding = 1.0 if self.state == ST_HORSE else 0.0
         if self.state == ST_DIS:
             riding = 1.0 - min(1.0, self.st / MOUNT_TIME)
+        elif self.state == ST_MOUNT:
+            riding = min(1.0, self.st / MOUNT_TIME)
         ang, lift = sprites.rider_pose(
             self.phase, riding=riding,
             moving=0.0 if self.on_horse else 1.0,
             air=self.air,
             attack=0.0 if self.gallop else max(0.0, self.attack),
             reach=1.0 if self.gallop else 0.0)
-        return ang, lift - (SEAT if riding > 0.5 else 0)
+        return ang, lift - SEAT * riding
 
     def draw(self, surf, cam_x):
         # the horse is left behind on foot, so it can end up far off screen
@@ -391,7 +422,7 @@ class Pickup:
 
 class Fx:
     def __init__(self):
-        self.parts, self.pops, self.rings = [], [], []
+        self.parts, self.pops, self.rings, self.slashes = [], [], [], []
 
     def burst(self, x, y, col, n=10):
         for _ in range(n):
@@ -405,6 +436,9 @@ class Fx:
 
     def ring(self, x, y, col):
         self.rings.append([x, y, 4.0, col, 0.35])
+
+    def slash(self, x, y, face, reach):
+        self.slashes.append([x, y, face, reach, 0.22, 0.22])
 
     def update(self, dt):
         for p in self.parts:
@@ -421,9 +455,38 @@ class Fx:
             r[2] += 200 * dt
             r[4] -= dt
         self.rings = [r for r in self.rings if r[4] > 0]
+        for s in self.slashes:
+            s[4] -= dt
+        self.slashes = [s for s in self.slashes if s[4] > 0]
 
     def draw(self, surf, cam_x):
         f = font(26)
+        for s in self.slashes:
+            x, y, face, reach, t_rem, t_max = s
+            progress = 1.0 - t_rem / t_max
+            alpha = int(220 * (1.0 - progress))
+            if alpha <= 0:
+                continue
+            r_in = reach * 0.45
+            r_out = reach * 0.95
+            sx = int(x - cam_x)
+            sy = int(y)
+            sz = int(r_out * 2 + 20)
+            arc_surf = pygame.Surface((sz, sz), pygame.SRCALPHA)
+            cx, cy = sz // 2, sz // 2
+            pts = []
+            for deg in range(-55, 30, 5):
+                rad = math.radians(deg)
+                pts.append((cx + face * math.cos(rad) * r_in, cy + math.sin(rad) * r_in * 0.75))
+            for deg in range(25, -60, -5):
+                rad = math.radians(deg)
+                pts.append((cx + face * math.cos(rad) * r_out, cy + math.sin(rad) * r_out * 0.75))
+            if len(pts) >= 3:
+                pygame.draw.polygon(arc_surf, (220, 235, 255, alpha // 2), pts)
+                inner_pts = pts[len(pts) // 4: 3 * len(pts) // 4]
+                if len(inner_pts) >= 2:
+                    pygame.draw.lines(arc_surf, (255, 255, 255, alpha), False, inner_pts, 3)
+            surf.blit(arc_surf, (sx - cx, sy - cy))
         for r in self.rings:
             pygame.draw.circle(surf, r[3], (int(r[0] - cam_x), int(r[1])),
                                int(r[2]), 2)
@@ -515,6 +578,9 @@ def run():
                 if ev.key in (pygame.K_SPACE, pygame.K_j):
                     if knight.start_attack():
                         reach = LANCE_REACH if knight.gallop else SWORD_REACH
+                        fx.slash(knight.x + knight.face * reach * 0.45,
+                                 knight.y - (SEAT * 0.5 if knight.on_horse else 38),
+                                 knight.face, reach)
                         fx.ring(knight.x + knight.face * reach * 0.5, GROUND - 46,
                                 (230, 220, 190))
                 if ev.key == pygame.K_r and knight.state in (ST_DEAD, ST_WIN):
@@ -545,6 +611,10 @@ def run():
         for e in foes:
             if e.dead:
                 e.dead_t += dt
+                if e.horse:
+                    e.horse.speed = 6.2
+                    e.horse.x += e.horse.face * e.horse.speed
+                    e.horse.phase += dt * 3.2
                 continue
             alive += 1
             e.tick(dt)
@@ -582,7 +652,7 @@ def run():
             e.x = max(world.GATE_X0 - 220.0, e.x)
 
         kills += sum(1 for e in foes if e.dead and e.dead_t < dt * 2)
-        foes = [e for e in foes if not (e.dead and e.dead_t > 3.2)]
+        foes = [e for e in foes if not (e.dead and e.dead_t >= 1.8)]
 
         # pickups
         for p in pickups:
