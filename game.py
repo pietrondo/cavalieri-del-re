@@ -28,12 +28,20 @@ GRAV = 0.62
 JUMP_V = -13.0
 ATTACK_TIME = 0.40
 HIT_LO, HIT_HI = 0.10, 0.27
-SWORD_REACH = 72
-LANCE_REACH = 112
+SWORD_REACH = 72 * 1.28
+LANCE_REACH = 112 * 1.42
 INVULN = 0.80
 MOUNT_TIME = 0.50
-MOUNT_DIST = 58.0
+MOUNT_DIST = 58.0 * 1.3
 SHIELD_TIME = 6.0
+
+# Actor scale. A knight on a horse is the subject of the shot, so he is a
+# third of the screen tall, not a sixth. Scaling happens in the rig geometry,
+# which keeps the 3x supersampled render crisp.
+HORSE_S = 1.42
+HUMAN_S = 1.28
+# the rider's pelvis must land on the saddle: hip(-52*HUMAN_S) + seat = saddle
+SEAT = 91.0 * HORSE_S - 52.0 * HUMAN_S - 4.0
 
 ST_HORSE, ST_FOOT, ST_DIS, ST_MOUNT, ST_DEAD, ST_WIN = (
     "horse", "foot", "dismount", "mount", "dead", "win")
@@ -46,6 +54,15 @@ def ease(t):
 
 def font(size):
     return pygame.font.Font(None, size)
+
+
+def contact_shadow(surf, x, y, w, alpha=95):
+    """A flat ellipse under an actor. Without it a dark sprite on a dusk
+    background just floats; with it the character is planted on the ground."""
+    h = max(4, int(w * 0.34))
+    s = pygame.Surface((int(w * 2), h), pygame.SRCALPHA)
+    pygame.draw.ellipse(s, (14, 12, 20, alpha), s.get_rect())
+    surf.blit(s, (int(x - w), int(y - h * 0.5)))
 
 
 # --------------------------------------------------------------------------
@@ -77,17 +94,19 @@ class Actor:
         return {}, 0.0
 
     def draw(self, surf, cam_x, dark=1.0):
+        contact_shadow(surf, self.x - cam_x, self.y, 22 * HUMAN_S)
         ang, lift = self.pose()
         img, _ = sprites.render_human(self.rig, ang, (0.0, lift), dark=dark,
                                       flip=self.face < 0)
-        sprites.blit(surf, img, self.rig, self.x, self.y, flip=self.face < 0)
+        sprites.blit(surf, img, self.rig, self.x - cam_x, self.y,
+                     flip=self.face < 0)
 
 
 class Horse:
     """Enough horse for a mounted actor to stand on."""
 
     def __init__(self, x, coat=None, trim=None):
-        self.rig = sprites.make_horse_rig(coat=coat, trim=trim)
+        self.rig = sprites.make_horse_rig(coat=coat, trim=trim, scale=HORSE_S)
         self.x = float(x)
         self.phase = 0.0
         self.speed = 0.0
@@ -95,10 +114,12 @@ class Horse:
         self.y = GROUND
 
     def draw(self, surf, cam_x, dark=1.0):
+        contact_shadow(surf, self.x - cam_x, self.y, 48 * HORSE_S)
         ang, bob = sprites.horse_pose(self.speed, self.phase, panic=0.25)
         img, _ = sprites.render_horse(self.rig, ang, (0.0, bob), dark=dark,
                                       flip=self.face < 0)
-        sprites.blit(surf, img, self.rig, self.x, self.y, flip=self.face < 0)
+        sprites.blit(surf, img, self.rig, self.x - cam_x, self.y,
+                     flip=self.face < 0)
 
 
 class Guard(Actor):
@@ -107,20 +128,20 @@ class Guard(Actor):
     def __init__(self, x, kind="foot"):
         if kind == "rider":
             super().__init__(x, sprites.make_human_rig(
-                0.96, sprites.GREY, sprites.GREY_D, sprites.GREY_D,
+                0.96 * HUMAN_S, sprites.GREY, sprites.GREY_D, sprites.GREY_D,
                 sprites.BLACK, weapon="none", plume=False, shield=False,
                 crest=sprites.GOLD, lance=True), 7, 3.1)
-            self.dmg, self.reach = 2, 92.0
+            self.dmg, self.reach = 2, 92.0 * HORSE_S
             self.horse = Horse(x, coat=sprites.GREY_D, trim=sprites.GOLD)
             self.on_horse = True
         elif kind == "spear":
             super().__init__(x, sprites.make_human_rig(
-                0.94, sprites.GREY, sprites.GREY_D, sprites.OCHRE,
+                0.94 * HUMAN_S, sprites.GREY, sprites.GREY_D, sprites.OCHRE,
                 sprites.OCHRE_D, weapon="spear", plume=False, shield=False), 3, 2.5)
             self.dmg, self.reach, self.on_horse = 1, 70.0, False
         else:
             super().__init__(x, sprites.make_human_rig(
-                0.90, sprites.GREY, sprites.GREY_D, sprites.OCHRE,
+                0.90 * HUMAN_S, sprites.GREY, sprites.GREY_D, sprites.OCHRE,
                 sprites.OCHRE_D, weapon="sword", plume=False, shield=True), 4, 2.0)
             self.dmg, self.reach, self.on_horse = 1, 62.0, False
         self.kind = kind
@@ -145,10 +166,13 @@ class Guard(Actor):
     def draw(self, surf, cam_x, dark=1.0):
         if self.horse:
             self.horse.draw(surf, cam_x, dark=dark)
+        else:
+            contact_shadow(surf, self.x - cam_x, self.y, 22 * HUMAN_S)
         ang, lift = self.pose()
         img, _ = sprites.render_human(self.rig, ang, (0.0, lift - 4),
                                       dark=dark, flip=self.face < 0)
-        sprites.blit(surf, img, self.rig, self.tx, self.y, flip=self.face < 0)
+        sprites.blit(surf, img, self.rig, self.tx - cam_x, self.y,
+                     flip=self.face < 0)
 
     def hurt(self, dmg, from_x):
         self.hp -= dmg
@@ -164,7 +188,7 @@ class Guard(Actor):
 
 class Knight(Actor):
     def __init__(self, x):
-        super().__init__(x, sprites.make_human_rig(1.0), 10, FOOT_SPEED)
+        super().__init__(x, sprites.make_human_rig(HUMAN_S), 10, FOOT_SPEED)
         self.horse = Horse(x, coat=sprites.CRIMSON_D, trim=sprites.GOLD)
         self.horse.face = 1
         self.state = ST_HORSE
@@ -300,14 +324,19 @@ class Knight(Actor):
             air=self.air,
             attack=0.0 if self.gallop else max(0.0, self.attack),
             reach=1.0 if self.gallop else 0.0)
-        return ang, lift - (36 if riding > 0.5 else 0)
+        return ang, lift - (SEAT if riding > 0.5 else 0)
 
     def draw(self, surf, cam_x):
-        self.horse.draw(surf, cam_x)
+        # the horse is left behind on foot, so it can end up far off screen
+        if -260 < self.horse.x - cam_x < W + 260:
+            self.horse.draw(surf, cam_x)
+        if not self.on_horse:
+            contact_shadow(surf, self.x - cam_x, self.y, 22 * HUMAN_S)
         ang, lift = self.pose()
         img, _ = sprites.render_human(self.rig, ang, (0.0, lift),
                                       flip=self.face < 0)
-        sprites.blit(surf, img, self.rig, self.x, self.y, flip=self.face < 0)
+        sprites.blit(surf, img, self.rig, self.x - cam_x, self.y,
+                     flip=self.face < 0)
         if self.shield > 0:
             bl = 0.55 + 0.45 * math.sin(pygame.time.get_ticks() * 0.012)
             halo = pygame.Surface((90, 90), pygame.SRCALPHA)

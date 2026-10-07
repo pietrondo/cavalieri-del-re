@@ -359,10 +359,10 @@ class Builder:
         return Rig(self.j, w, h)
 
 
-def _horse(coat=None, trim=None):
+def _horse(coat=None, trim=None, scale=1.0):
     """Bay warhorse. Feet y=0, withers y=-82, nose y=-92. Faces +x."""
     far, near = HORSE_D, HORSE
-    b = Builder()
+    b = Builder(scale)
     b.deco("root", None, 0, 0, 0.0, "circle", [], HORSE, 1.0)
     # --- behind the horse ---
     b.link("tail", "root", (-36, -72), 2.52, 22, 11, 6, MANE)
@@ -433,9 +433,9 @@ def _horse(coat=None, trim=None):
     return b
 
 
-def make_horse_rig(coat=None, trim=None):
+def make_horse_rig(coat=None, trim=None, scale=1.0):
     # canvas half-extents: nose ~+112, tail ~-46, withers -84, hooves 0
-    return _horse(coat, trim).build(124, 116)
+    return _horse(coat, trim, scale).build(int(124 * scale), int(116 * scale))
 
 
 STEEL_ARM_W = (11, 8)
