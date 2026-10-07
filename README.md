@@ -52,19 +52,25 @@ pip install -r requirements.txt
 python game.py
 ```
 
-Ci sono tre strumenti in `tools/`, tutti headless (nessuna finestra):
+Ci sono quattro strumenti in `tools/`, tutti headless (nessuna finestra):
 
 ```bash
-python tools/preview.py   # foglio di contatto degli scheletri, fase per fase
-python tools/frames.py    # fotogrammi di gioco veri, in quattro punti del livello
-python tools/smoke.py     # guida il livello 1 senza finestra e controlla gli invarianti
+python tools/preview.py     # foglio di contatto degli scheletri, fase per fase
+python tools/frames.py      # fotogrammi di gioco veri, in quattro punti del livello
+python tools/silhouette.py  # colore, silhouette, grigi e miniatura 32px di ogni attore
+python tools/smoke.py       # guida il livello 1 senza finestra e controlla gli invarianti
 ```
 
 `preview.py` serve a **guardare** gli scheletri mentre li si costruisce: senza
 quello si disegna a occhi chiusi. `frames.py` mostra la scena composta, quindi
 è l'unico modo per accorgersi che una figura è troppo piccola o che affonda nel
-fondo. `smoke.py` è il test: percorre il livello, scende e risale da cavallo e
-verifica che ogni disegno resti nello schermo.
+fondo. `silhouette.py` è il controllo di **leggibilità**: lo stesso attore
+riempito di nero deve restare riconoscibile, in grigio deve mostrare il
+contrasto di valore, e a 32 pixel di altezza deve ancora leggersi. Se la
+silhouette non si capisce, nessun dettaglio la salverà. `smoke.py` è il test:
+percorre il livello, scende e risale da cavallo, gira anche a sinistra e
+verifica che ogni disegno resti nello schermo e che cavallo e cavaliere restino
+allineati.
 
 ## Come sono fatti gli sprite
 
@@ -132,7 +138,14 @@ con spessore diverso alla radice e alla punta), poligoni e cerchi, con una
 luce unica per tutta la troupe: ogni ossa si auto-illumina dal lato della luce e
 prende un riverbero freddo dall'altro. Le ossa della metà lontana del corpo
 vengono scurite e desaturate, e la profondità si legge senza alcuna vera
-illuminazione.
+illuminazione. Ogni osso porta un contorno scuro nel proprio colore, e attorno
+all'intera silhouette ne viene disegnato un secondo: il primo separa gli arti
+tra loro, il secondo stacca l'attore dallo sfondo.
+
+Il colore non è decorazione, è **leggibilità**. Il cavallo è baio scuro e il
+cavaliere acciaio chiaro, così in grigio restano due valori distinti e il
+cavaliere non si fonde con la groppa; la piuma è il landmark che nella
+silhouette rompe la testa. `tools/silhouette.py` è lì per verificarlo.
 
 ### Le pose
 

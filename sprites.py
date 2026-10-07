@@ -329,9 +329,9 @@ CRIMSON_D = (122, 26, 30)
 GOLD = (216, 178, 76)
 OCHRE = (156, 130, 68)
 OCHRE_D = (116, 94, 48)
-HORSE = (138, 90, 54)
-HORSE_D = (100, 64, 38)
-MANE = (46, 34, 28)
+HORSE = (104, 68, 42)
+HORSE_D = (74, 46, 28)
+MANE = (40, 30, 24)
 HOOF = (58, 52, 48)
 WOOD = (124, 90, 58)
 GREY = (130, 138, 154)
@@ -466,7 +466,7 @@ def make_horse_rig(coat=None, trim=None, scale=1.0):
 
 STEEL_ARM_W = (13, 9)
 LEG_W = (14, 11)
-SHOULDER = (1.0, -74.0)
+SHOULDER = (1.0, -78.0)
 HIP = (0.0, -52.0)
 
 
@@ -492,7 +492,7 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
     b.limb("shin_f", "thigh_f", 1.80, 23, 10, 7, steel_d)
     b.limb("foot_f", "shin_f", 0.10, 10, 8, 5, (58, 46, 36))
     # --- torso: narrow hips, broad shoulders, so the head is not swallowed ---
-    b.link("torso", "root", HIP, -1.5708, 26, 14, 18, cloth)
+    b.link("torso", "root", HIP, -1.5708, 30, 14, 18, cloth)
     b.deco("tabard", "torso", HIP[0], HIP[1], 1.5708, "poly",
            [(-7, -1), (7, -1), (8, 17), (-8, 17)], cloth_d)
     b.deco("belt", "torso", HIP[0], HIP[1] - 2, 1.5708, "poly",
@@ -515,8 +515,11 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
         b.deco("crest", "head", hx - 5, hy - 7, -0.08, "poly",
                [(-3, 0), (6, -8), (16, -11), (7, -12), (-2, -6)], crest)
     if plume:
+        # the plume is the knight's landmark: in silhouette it must break the
+        # head shape, otherwise a rider is just a bump on the horse's back.
         b.deco("plume", "head", hx - 5, hy - 7, -0.08, "poly",
-               [(-3, 0), (13, -5), (21, -16), (10, -13), (0, -5)], CRIMSON)
+               [(0, 2), (14, -5), (30, -18), (34, -32), (22, -27),
+                (10, -11), (-3, 0)], CRIMSON)
     # --- near leg + near arm, in front ---
     b.link("thigh", "root", HIP, 1.52, 25, 14, 11, cloth_d)
     b.limb("shin", "thigh", 1.74, 23, 11, 7, steel_d)
@@ -565,9 +568,9 @@ def make_human_rig(scale=1.0, steel=STEEL, steel_d=STEEL_D, cloth=CRIMSON,
                    crest=None, lance=False):
     b = _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
                crest, lance)
-    # the lance needs canvas room to the right; a bare knight does not
+    # the lance needs canvas room to the right; the plume room above
     reach = 132 if lance else 80
-    return b.build(int(max(52, reach) * scale), int(112 * scale))
+    return b.build(int(max(52, reach) * scale), int(136 * scale))
 
 
 # --------------------------------------------------------------------------
@@ -579,7 +582,7 @@ ARM_DOWN = 0.92
 FORE_DOWN = 1.00
 
 _RIDE = {
-    "torso": 0.18, "neck": -0.12, "head": -0.06,
+    "torso": 0.05, "neck": -0.12, "head": -0.06,
     "arm_f": -0.30, "fa_f": -0.55,
     "arm_n": -0.42, "fa_n": -0.50,
     "thigh": -0.35, "shin": 0.55, "foot": 0.22,
