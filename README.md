@@ -10,10 +10,10 @@ Un cavaliere esce dal cortile di un castello medievale e deve arrivare al
 bosco. Le guardie del re lo cercano, i cavalieri nemici chiudono la strada e
 lungo il cammino ci sono sacchetti di provviste da raccogliere.
 
-- **In sella** si corre e, con la combinazione indicata, si galoppa: l'attacco
-  diventa una stoccata di lancia, più lunga e più dannosa della spada.
-- **A piedi** si salta e si menisce la spada, ma si è più veloci nel girare
-  tra gli ostacoli.
+- **In sella** si corre; con `MAIUSC` si galoppa e l'attacco diventa una
+  stoccata di lancia, più lunga e più dannosa della spada.
+- **A piedi** si salta e si mena la spada, e si gira più stretti tra gli
+  ostacoli.
 - **La discesa e la risalita** sono un'animazione vera, non un teletrasporto:
   `E` quando sei in sella ti porta a terra, `E` di nuovo quando sei vicino al
   cavallo per rimontare.
@@ -52,14 +52,19 @@ pip install -r requirements.txt
 python game.py
 ```
 
-Per guardare le animazioni senza aprire la finestra, sprite per sprite e fase
-per fase:
+Ci sono tre strumenti in `tools/`, tutti headless (nessuna finestra):
 
 ```bash
-python tools/preview.py
+python tools/preview.py   # foglio di contatto degli scheletri, fase per fase
+python tools/frames.py    # fotogrammi di gioco veri, in quattro punti del livello
+python tools/smoke.py     # guida il livello 1 senza finestra e controlla gli invarianti
 ```
 
-scrive `tools/preview.png`, uno sprite sheet di tutte le posizioni.
+`preview.py` serve a **guardare** gli scheletri mentre li si costruisce: senza
+quello si disegna a occhi chiusi. `frames.py` mostra la scena composta, quindi
+è l'unico modo per accorgersi che una figura è troppo piccola o che affonda nel
+fondo. `smoke.py` è il test: percorre il livello, scende e risale da cavallo e
+verifica che ogni disegno resti nello schermo.
 
 ## Come sono fatti gli sprite
 
@@ -85,9 +90,9 @@ genitore**, quindi non si scrive mai da dove parte:
 
 ```python
 b = Builder()
-b.link("body", "root", (-20, -60), 0.0, 40, 46, 38, HORSE)
-b.limb("chest", "body", -0.15, 20, 38, 30, HORSE)   # parte dalla punta di body
-b.limb("neck",  "chest", -0.78, 26, 25, 15, HORSE)  # parte dalla punta di chest
+b.link("rump", "root", (-42, -66), 0.16, 28, 35, 33, HORSE)
+b.limb("barrel", "rump", -0.06, 32, 33, 29, HORSE)   # parte dalla punta di rump
+b.limb("chest",  "barrel", -0.10, 20, 29, 23, HORSE)  # parte dalla punta di barrel
 ```
 
 Con `limb()` la posizione di partenza è il `tip` del padre, calcolata dal `Builder`
@@ -117,7 +122,7 @@ catene non possono uscire sbagliate in silenzio.
 
 ### Antialiasing senza un pixel di arte
 
-Le superfici vengono disegnate su un buffer **sovrac campionato x3** (`SS = 3`)
+Le superfici vengono disegnate su un buffer **sovracampionato x3** (`SS = 3`)
 e poi ridotte con `pygame.transform.smoothscale`. L'antialiasing è il
 risultato della riduzione, non un filtro e non un'immagine di partenza: è lo
 stesso trucco che si usa per la tipografia vettoriale, applicato alle ossa.
@@ -133,7 +138,7 @@ illuminazione.
 
 Le funzioni di posa (`horse_pose`, `rider_pose`) trasformano il tempo in
 angoli: ciclo di galoppo con gruppi di fase diversi per zampe anteriori e
-posteriori, corsa a due gambe in contrtofase, risalita a cavallo come blend tra
+posteriori, corsa a due gambe in controfase, risalita a cavallo come blend tra
 la posa in sella e quella a piedi, stoccata della lancia in cui entrambe le
 braccia vengono allineate per riportare l'asta in orizzontale.
 
@@ -152,6 +157,20 @@ cavalieri-del-re/
 ├── sprites.py           il sistema a scheletro: Bone, Rig, Builder, FK, rasterizzazione e pose
 ├── world.py             scena: cielo, colline, castello, portone, strada, obiettivo
 ├── tools/
-│   ├── preview.py       sprite sheet headless per controllare gli scheletri
-│   └── preview.png      (generato, non tracciato: uscita di preview.py)
+│   ├── preview.py       foglio di contatto degli scheletri, fase per fase
+│   ├── frames.py        fotogrammi di gioco veri, per giudicare la scena
+│   └── smoke.py         test: guida il livello headless, controlla gli invarianti
 ```
+
+## Scala degli attori
+
+Un cavaliere a cavallo è il soggetto dell'inquadratura, quindi occupa circa un
+terzo dell'altezza dello schermo. La scala si applica **alla geometria** delle
+ossa (non a un ingrandimento dell'immagine, che sfocherebbe): `HORSE_S` e
+`HUMAN_S` in `game.py`. Da lì derivano anche l'altezza della sella a cui si
+siede il cavaliere (`SEAT`) e la portata delle armi, così le proporzioni
+restano coerenti se cambi la scala.
+
+Ogni attore ha un'**ombra di contatto**: un'ellisse schiacciata alla base. Su
+uno sfondo crepuscolare uno sprite scuro senza ombra sembra sospeso; con
+l'ombra è piantato a terra.
