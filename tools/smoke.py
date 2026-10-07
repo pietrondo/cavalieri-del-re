@@ -1,6 +1,11 @@
-"""Headless smoke test: drives the knight across level 1 and checks the
-invariant that broke silently - every actor must be drawn in SCREEN space,
-so its blit position has to follow the camera.
+"""Headless smoke test: drives the knight across level 1 and checks two
+invariants that used to break silently.
+
+  1. Every actor must be drawn in SCREEN space, so its blit position has to
+     follow the camera.
+  2. The mounted knight sits on his horse, so their blits must share a screen
+     x - in BOTH directions. render() mirrors the sprite about its own centre,
+     so a flipped sprite blitted with a flipped offset split them by 2*rig.w.
 
     python tools/smoke.py
 """
@@ -22,12 +27,28 @@ W_BOUND = 700.0   # the game's own cull keeps draws well inside this
 _real_blit = sprites.blit
 
 
-def _spy_blit(surf, img, rig, x, y, flip=False):
+def _spy_blit(surf, img, rig, x, y):
     BLITS.append(x)
-    return _real_blit(surf, img, rig, x, y, flip)
+    return _real_blit(surf, img, rig, x, y)
 
 
 sprites.blit = _spy_blit
+
+
+def check_blit_places_feet():
+    """blit() must land the sprite's feet (image x = rig.w) exactly on the
+    world x. render() mirrors about the centre, so this cannot depend on the
+    facing - the old flipped branch added rig.w twice and split a rider from
+    his horse by 2*rig.w."""
+    class Rig:
+        w, h = 10, 6
+
+    img = pygame.Surface((20, 12), pygame.SRCALPHA)
+    img.set_at((10, 0), (255, 0, 0, 255))      # the feet point
+    scr = pygame.Surface((80, 24), pygame.SRCALPHA)
+    _real_blit(scr, img, Rig, 30, 10)
+    assert scr.get_at((30, 4))[:3] == (255, 0, 0), (
+        "blit() did not land the sprite's feet on the world x")
 
 
 def main():
@@ -45,11 +66,16 @@ def main():
     dt = 1 / 60
     cam = 0.0
     offscreen = 0
+    misaligned = 0
     for step in range(1400):
         if step == 200:
             knight.toggle_mount()        # dismount mid-run
         if step == 400:
             knight.toggle_mount()        # and get back on
+        if step == 700:                  # turn around: flips the sprites
+            keys[pygame.K_d], keys[pygame.K_a] = False, True
+        if step == 900:
+            keys[pygame.K_a], keys[pygame.K_d] = False, True
         if step % 37 == 0:
             knight.start_attack()
         knight.update(dt, keys, foes)
@@ -82,10 +108,21 @@ def main():
             if not (-W_BOUND < bx < game.W + W_BOUND):
                 offscreen += 1
 
+        # knight.draw draws the horse, then the knight: when SEATED (not mid
+        # mount, when the rider is deliberately moving off) they share a world
+        # x and must blit to the same screen x.
+        if (knight.state == game.ST_HORSE and len(BLITS) >= 2
+                and abs(BLITS[0] - BLITS[1]) > 1):
+            misaligned += 1
+
     assert knight.x > 500, "the knight never moved (x=%r)" % knight.x
     assert offscreen == 0, ("%d actor blits landed off screen: the draws are "
                             "not in screen space" % offscreen)
+    assert misaligned == 0, ("the mounted knight and his horse blitted %d "
+                             "frames at different x (a flipped blit offset)"
+                             % misaligned)
     assert knight.hp > 0, "the knight died during a scripted run"
+    check_blit_places_feet()
     print("smoke ok: knight reached x=%.0f, hp=%d, %d draws all on screen"
           % (knight.x, knight.hp, 1400))
 

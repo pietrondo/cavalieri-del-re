@@ -70,11 +70,11 @@ def main():
         game.contact_shadow(s, ex - cam, ground, 48 * game.HORSE_S)
         eha, ehb = sprites.horse_pose(3.4, (i * 0.2) % 1.0, panic=0.3)
         img, _ = sprites.render_horse(ehorse, eha, (0.0, ehb), flip=True)
-        sprites.blit(s, img, ehorse, ex - cam, ground, flip=True)
+        sprites.blit(s, img, ehorse, ex - cam, ground)
         era, erl = sprites.rider_pose((i * 0.2) % 1.0, riding=1.0, moving=1.0,
                                       reach=0.8)
         img, _ = sprites.render_human(rider, era, (0.0, erl - game.SEAT), flip=True)
-        sprites.blit(s, img, rider, ex - cam, ground, flip=True)
+        sprites.blit(s, img, rider, ex - cam, ground)
 
         gx = kx - 340
         game.contact_shadow(s, gx - cam, ground, 22 * game.HUMAN_S)

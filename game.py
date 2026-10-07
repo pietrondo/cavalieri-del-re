@@ -98,8 +98,7 @@ class Actor:
         ang, lift = self.pose()
         img, _ = sprites.render_human(self.rig, ang, (0.0, lift), dark=dark,
                                       flip=self.face < 0)
-        sprites.blit(surf, img, self.rig, self.x - cam_x, self.y,
-                     flip=self.face < 0)
+        sprites.blit(surf, img, self.rig, self.x - cam_x, self.y)
 
 
 class Horse:
@@ -118,8 +117,7 @@ class Horse:
         ang, bob = sprites.horse_pose(self.speed, self.phase, panic=0.25)
         img, _ = sprites.render_horse(self.rig, ang, (0.0, bob), dark=dark,
                                       flip=self.face < 0)
-        sprites.blit(surf, img, self.rig, self.x - cam_x, self.y,
-                     flip=self.face < 0)
+        sprites.blit(surf, img, self.rig, self.x - cam_x, self.y)
 
 
 class Guard(Actor):
@@ -171,8 +169,7 @@ class Guard(Actor):
         ang, lift = self.pose()
         img, _ = sprites.render_human(self.rig, ang, (0.0, lift - 4),
                                       dark=dark, flip=self.face < 0)
-        sprites.blit(surf, img, self.rig, self.tx - cam_x, self.y,
-                     flip=self.face < 0)
+        sprites.blit(surf, img, self.rig, self.tx - cam_x, self.y)
 
     def hurt(self, dmg, from_x):
         self.hp -= dmg
@@ -259,9 +256,13 @@ class Knight(Actor):
         self.x = max(30.0, min(self.x, world.GOAL_X + 120.0))
 
         if self.on_horse:
-            self.horse.x += ax * spd
+            # lock the horse to the (already clamped) rider x: moving it by
+            # ax*spd on its own let it drift past the level edge the rider
+            # cannot cross.
+            self.horse.x = self.x
             self.horse.phase += dt * (0.9 + abs(ax) * spd * 0.30)
             self.horse.speed = abs(ax) * spd
+            self.horse.face = self.face
             self.y, self.vy = GROUND, 0.0
         else:
             if up and self.grounded():
@@ -335,8 +336,7 @@ class Knight(Actor):
         ang, lift = self.pose()
         img, _ = sprites.render_human(self.rig, ang, (0.0, lift),
                                       flip=self.face < 0)
-        sprites.blit(surf, img, self.rig, self.x - cam_x, self.y,
-                     flip=self.face < 0)
+        sprites.blit(surf, img, self.rig, self.x - cam_x, self.y)
         if self.shield > 0:
             bl = 0.55 + 0.45 * math.sin(pygame.time.get_ticks() * 0.012)
             halo = pygame.Surface((90, 90), pygame.SRCALPHA)

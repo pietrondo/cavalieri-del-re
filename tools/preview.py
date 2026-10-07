@@ -21,8 +21,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "preview.png")
 
 
-def blit_rig(sheet, img, rig, x, y, flip=False):
-    sprites.blit(sheet, img, rig, x, y, flip)
+def blit_rig(sheet, img, rig, x, y):
+    sprites.blit(sheet, img, rig, x, y)
 
 
 def sheet_rows():

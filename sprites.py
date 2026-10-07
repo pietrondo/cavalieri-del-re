@@ -277,7 +277,25 @@ def render(rig, angles=None, root=(0.0, 0.0), dark=1.0, flip=False,
     out = pygame.transform.smoothscale(surf, (rig.w * 2, rig.h * 2))
     if flip:
         out = pygame.transform.flip(out, True, False)
-    return out, tr
+    return _contour(out), tr
+
+
+CONTOUR_R = 1  # px of dark ring added around the whole silhouette
+
+
+def _contour(img):
+    """A single dark ring around the whole figure, so the cast separates from
+    the background. The per-bone outline still separates limbs from each other;
+    this one is only for the outer edge, which per-bone outlines cannot give."""
+    halo = img.copy()
+    halo.fill((10, 9, 15, 255), special_flags=pygame.BLEND_RGBA_MULT)
+    out = pygame.Surface(img.get_size(), pygame.SRCALPHA)
+    r = CONTOUR_R
+    for dx, dy in ((-r, 0), (r, 0), (0, -r), (0, r),
+                   (-r, -r), (r, -r), (-r, r), (r, r)):
+        out.blit(halo, (dx, dy))
+    out.blit(img, (0, 0))
+    return out
 
 
 # bones that belong to the far side of the body, per rig kind
@@ -294,10 +312,11 @@ def render_human(rig, angles, root, dark=1.0, flip=False):
     return render(rig, angles, root, dark, flip, HUMAN_FAR)
 
 
-def blit(surf, img, rig, x, y, flip=False):
-    """Blit with the feet point at world (x, y)."""
-    ox = x - rig.w if not flip else x + rig.w
-    surf.blit(img, (int(ox), int(y - rig.h)))
+def blit(surf, img, rig, x, y):
+    """Blit with the feet point at world (x, y). render() mirrors the image
+    about its own centre, so the feet stay at x=rig.w and the offset is the
+    same whichever way the sprite faces."""
+    surf.blit(img, (int(x - rig.w), int(y - rig.h)))
 
 
 # --------------------------------------------------------------------------
@@ -461,8 +480,13 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
            *STEEL_ARM_W, steel_d)
     b.limb("fa_f", "arm_f", 1.02, 18, 8, 7, steel_d)
     if shield:
+        # a rim + boss, so it reads as a shield and not as a plain ball
         hx, hy = b.on("fa_f")
-        b.deco("shield", "fa_f", hx, hy, 0.0, "circle", [], cloth_d, 12.0)
+        b.deco("shield_rim", "fa_f", hx, hy, 0.0, "circle", [], (52, 34, 34),
+               12.5)
+        b.deco("shield", "fa_f", hx, hy, 0.0, "circle", [], cloth_d, 11.0)
+        b.deco("boss", "fa_f", hx, hy, 0.0, "circle", [], _tone(steel, 0.9),
+               4.0)
     # --- far leg, a step behind ---
     b.link("thigh_f", "root", (HIP[0] - 4, HIP[1]), 1.46, 25, *LEG_W, cloth_d)
     b.limb("shin_f", "thigh_f", 1.80, 23, 10, 7, steel_d)
@@ -479,12 +503,12 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
     # a helm is roughly as wide as it is tall: big enough to read as a head
     b.link("head", "neck", (sx + 1, sy - 11), -0.08, 17, 17, 14, steel)
     hx, hy = b.on("head")
-    b.deco("visor", "head", hx, hy, -0.08, "poly",
-           [(-11, -6), (1, -7), (2, 6), (-11, 7)], (18, 20, 28))
-    b.deco("nasal", "head", hx, hy, -0.08, "poly",
-           [(-6, -9), (-3, -9), (-3, 9), (-6, 9)], steel)
-    b.deco("eyeslit", "head", hx, hy, -0.08, "poly",
-           [(-10, -3), (0, -3), (0, -1), (-10, -1)], (8, 8, 12))
+    # a light helm with one dark visor band reads instantly as a helmet; a
+    # bright nasal bar over a dark face just reads as a letter.
+    b.deco("visor", "head", hx - 1, hy, -0.08, "poly",
+           [(-12, -3), (2, -4), (3, 2), (-12, 3)], (18, 20, 28))
+    b.deco("breathe", "head", hx - 1, hy + 6, -0.08, "poly",
+           [(-9, -1), (1, -1), (1, 1), (-9, 1)], (26, 28, 36))
     b.deco("brow", "head", hx - 8, hy - 8, -0.08, "poly",
            [(-2, 0), (14, -3), (14, 2), (-2, 2)], _tone(steel, 1.20))
     if crest:
