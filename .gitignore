@@ -8,3 +8,5 @@ tools/preview.png
 
 .idea/
 .vscode/
+# indice CodeGraph (generato)
+.codegraph/

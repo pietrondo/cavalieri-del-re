@@ -28,7 +28,6 @@ import sprites  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "silhouette.png")
-CW, CH = 230, 260
 THUMB_H = 32
 
 
@@ -91,6 +90,10 @@ def main():
     ]
 
     rows = ["colore", "silhouette", "grigi", "thumb 32px"]
+    # size the cells to the actual actors: a rig can grow its canvas, and fixed
+    # cells would crop it.
+    CW = max(img.get_width() for _l, img in cast) + 24
+    CH = max(img.get_height() for _l, img in cast) + 28
     sheet = pygame.Surface((CW * len(cast), CH * len(rows)))
     sheet.fill((238, 238, 240))
     f = pygame.font.Font(None, 18)

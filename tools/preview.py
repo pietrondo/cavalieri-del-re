@@ -16,9 +16,51 @@ import pygame  # noqa: E402
 
 pygame.init()
 import sprites  # noqa: E402
+import game  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "preview.png")
+CW, CH = 190, 250
+
+
+def rigs():
+    horse = sprites.make_horse_rig(coat=sprites.CRIMSON_D, trim=sprites.GOLD, scale=game.HORSE_S)
+    knight = sprites.make_human_rig(game.HUMAN_S)
+    ehorse = sprites.make_horse_rig(coat=sprites.GREY_D, trim=sprites.GOLD, scale=game.HORSE_S)
+    rider = sprites.make_human_rig(0.96 * game.HUMAN_S, sprites.GREY, sprites.GREY_D,
+                                   sprites.GREY_D, sprites.BLACK, weapon="none",
+                                   plume=False, shield=False,
+                                   crest=sprites.GOLD, lance=True)
+    return {
+        "hero horse": horse,
+        "hero knight": knight,
+        "enemy horse": ehorse,
+        "enemy rider": rider,
+        "horse": horse,
+        "knight": knight,
+        "ehorse": ehorse,
+        "rider": rider,
+    }
+
+
+def draw_cell(sheet, cast, row, phase, facing, x, y):
+    flip = facing < 0
+    if row == "hero mounted":
+        horse, human = cast.get("hero horse", cast.get("horse")), cast.get("hero knight", cast.get("knight"))
+        ha, hb = sprites.horse_pose(3.0, phase)
+        ra, rlift = sprites.rider_pose(phase, riding=1.0, moving=1.0)
+        hi, _ = sprites.render_horse(horse, ha, (0.0, hb), flip=flip)
+        sprites.blit(sheet, hi, horse, x, y)
+        ri, _ = sprites.render_human(human, ra, (0.0, rlift - game.SEAT), flip=flip)
+        sprites.blit(sheet, ri, human, x, y)
+    elif row == "enemy mounted":
+        horse, human = cast.get("enemy horse", cast.get("ehorse")), cast.get("enemy rider", cast.get("rider"))
+        ha, hb = sprites.horse_pose(3.0, phase)
+        ra, rlift = sprites.rider_pose(phase, riding=1.0, moving=1.0, reach=phase)
+        hi, _ = sprites.render_horse(horse, ha, (0.0, hb), flip=flip)
+        sprites.blit(sheet, hi, horse, x, y)
+        ri, _ = sprites.render_human(human, ra, (0.0, rlift - game.SEAT), flip=flip)
+        sprites.blit(sheet, ri, human, x, y)
 
 
 def blit_rig(sheet, img, rig, x, y):
