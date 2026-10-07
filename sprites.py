@@ -20,6 +20,7 @@ import pygame
 
 TAU = math.pi * 2
 SS = 3  # supersampling -> anti-aliasing without a single pixel of art
+OUTLINE_W = 2.0  # outline thickness, in supersampled units: ~0.7px on screen
 
 
 def lerp(a, b, t):
@@ -86,27 +87,23 @@ class Rig:
         self.bones, self.map = [], {}
         for j in joints:
             if j.parent is None:
-                lx, ly = j.x, j.y
+                lx, ly, la = j.x, j.y, j.ang
             else:
+                # Rest angles are authored ABSOLUTE (see Bone.ang). solve() adds
+                # a bone's angle to its parent's, so store the LOCAL delta here
+                # or every chained bone renders rotated by its parent's angle.
                 p = rest[j.parent]
-                pa = self._world_ang(rest, p)
+                pa = p.ang
                 c, s = math.cos(-pa), math.sin(-pa)
                 dx, dy = j.x - p.x, j.y - p.y
                 lx, ly = dx * c - dy * s, dx * s + dy * c
-            b = Draw(j.name, j.parent, lx, ly, j.ang, j.length, j.w0, j.w1,
+                la = j.ang - pa
+            b = Draw(j.name, j.parent, lx, ly, la, j.length, j.w0, j.w1,
                      j.color, j.shape, j.pts)
             self.bones.append(b)
             self.map[j.name] = b
         self.w, self.h = w, h
         self._check(rest)
-
-    @staticmethod
-    def _world_ang(rest, j):
-        a = j.ang
-        while j.parent is not None:
-            j = rest[j.parent]
-            a += j.ang
-        return a
 
     def _check(self, rest):
         """A limb must end exactly on its own CHILD joint, otherwise the FK
@@ -179,7 +176,7 @@ def _shade_poly(surf, pts, base, outline):
     cy = sum(p[1] for p in pts) / n
     proj = [(p[0] - cx) * LIGHT[0] + (p[1] - cy) * LIGHT[1] for p in pts]
     span = max(1.0, max(proj) - min(proj))
-    pygame.draw.polygon(surf, outline, pts, max(1, SS // 2))
+    pygame.draw.polygon(surf, outline, pts, int(OUTLINE_W * SS * 0.6))
     pygame.draw.polygon(surf, _tone(base, 0.94), pts)
     for cut, col in ((0.14, _tone(base, 1.16)),
                      (0.44, _tone(base, 1.34)),
@@ -194,7 +191,9 @@ def _draw(surf, b, gx, gy, ga, dark, occl):
     """One bone. `occl` (0..1) darkens it when it sits behind something else -
     that is how the far legs read as far legs."""
     base = _tone(b.color, dark * (1.0 - 0.42 * occl))
-    outline = _tint(b.color, 0.45, 0.50 * dark)
+    # a dark outline in the limb's own hue: without it a limb is a smear of the
+    # same colour as the body next to it, and the figure stops reading.
+    outline = _tone(_mix(b.color, (16, 14, 22), 0.74), dark)
 
     if b.shape == "poly":
         c, s = math.cos(ga), math.sin(ga)
@@ -206,7 +205,7 @@ def _draw(surf, b, gx, gy, ga, dark, occl):
     if b.shape == "circle":
         r = max(1.0, b.length)
         pygame.draw.circle(surf, outline, (int(gx * SS), int(gy * SS)),
-                           int((r + 1.2) * SS))
+                           int((r + OUTLINE_W) * SS))
         pygame.draw.circle(surf, base, (int(gx * SS), int(gy * SS)),
                            int(r * SS))
         hl = (gx + LIGHT[0] * r * 0.42, gy + LIGHT[1] * r * 0.42)
@@ -234,11 +233,12 @@ def _draw(surf, b, gx, gy, ga, dark, occl):
              (gy - ny * (r0_ * math.copysign(1.0, light) + a)) * SS)]
 
     # 1. outline
-    pygame.draw.polygon(surf, outline, quad(r0 + 1.3, r1 + 1.3, 0.0))
+    ow = OUTLINE_W
+    pygame.draw.polygon(surf, outline, quad(r0 + ow, r1 + ow, 0.0))
     pygame.draw.circle(surf, outline, (int(gx * SS), int(gy * SS)),
-                       int((r0 + 1.3) * SS))
+                       int((r0 + ow) * SS))
     pygame.draw.circle(surf, outline, (int(ex * SS), int(ey * SS)),
-                       int((r1 + 1.3) * SS))
+                       int((r1 + ow) * SS))
     # 2. base fill
     pygame.draw.polygon(surf, base, quad(r0, r1, 0.0))
     pygame.draw.circle(surf, base, (int(gx * SS), int(gy * SS)), int(r0 * SS))
@@ -360,32 +360,34 @@ class Builder:
 
 
 def _horse(coat=None, trim=None, scale=1.0):
-    """Bay warhorse. Feet y=0, withers y=-82, nose y=-92. Faces +x."""
-    far, near = HORSE_D, HORSE
+    """Bay warhorse. Feet y=0, back (withers) y~-84, muzzle forward. Faces +x."""
+    # legs are a value darker than the barrel on purpose: same-colour legs melt
+    # into the body and the whole horse reads as one stone.
+    far, near = _tone(HORSE, 0.58), HORSE_D
     b = Builder(scale)
     b.deco("root", None, 0, 0, 0.0, "circle", [], HORSE, 1.0)
     # --- behind the horse ---
-    b.link("tail", "root", (-36, -72), 2.52, 22, 11, 6, MANE)
-    b.limb("tail2", "tail", 2.68, 18, 6, 4, MANE)
-    b.limb("tail3", "tail2", 2.80, 14, 4, 2, MANE)
+    b.link("tail", "root", (-50, -74), 2.40, 24, 11, 6, MANE)
+    b.limb("tail2", "tail", 2.60, 18, 6, 4, MANE)
+    b.limb("tail3", "tail2", 2.75, 14, 4, 2, MANE)
     # --- far legs: the barrel covers them, so they read as depth ---
-    b.link("leg_hf", "root", (-24, -58), 1.52, 26, 16, 9, far)
-    b.limb("knee_hf", "leg_hf", 1.66, 24, 9, 6, far)
-    b.limb("hoof_hf", "knee_hf", 1.57, 9, 9, 8, HOOF)
-    b.link("leg_ff", "root", (12, -60), 1.50, 26, 16, 9, far)
-    b.limb("knee_ff", "leg_ff", 1.68, 24, 9, 6, far)
-    b.limb("hoof_ff", "knee_ff", 1.57, 9, 9, 8, HOOF)
-    # --- barrel: deep at the girth, tucked along the belly ---
-    b.link("rump", "root", (-42, -66), 0.16, 28, 35, 33, HORSE)
-    b.limb("barrel", "rump", -0.06, 32, 33, 29, HORSE)
-    b.limb("chest", "barrel", -0.10, 20, 29, 23, HORSE)
-    # --- neck at ~45 degrees, then a long head carried forward ---
-    b.limb("neck", "chest", -0.52, 28, 22, 13, HORSE)
-    b.limb("crest", "neck", -0.30, 18, 13, 10, HORSE)
-    b.limb("head", "crest", -0.06, 26, 15, 8, HORSE)
+    b.link("leg_hf", "root", (-38, -60), 1.50, 29, 15, 9, far)
+    b.limb("knee_hf", "leg_hf", 1.62, 22, 9, 6, far)
+    b.limb("hoof_hf", "knee_hf", 1.55, 9, 9, 8, HOOF)
+    b.link("leg_ff", "root", (24, -62), 1.50, 28, 15, 9, far)
+    b.limb("knee_ff", "leg_ff", 1.64, 22, 9, 6, far)
+    b.limb("hoof_ff", "knee_ff", 1.55, 8, 9, 8, HOOF)
+    # --- barrel: long enough that the front and hind legs stand apart ---
+    b.link("rump", "root", (-56, -70), 0.12, 30, 30, 28, HORSE)
+    b.limb("barrel", "rump", -0.05, 40, 28, 25, HORSE)
+    b.limb("chest", "barrel", -0.08, 24, 25, 22, HORSE)
+    # --- neck rises thick from the chest and tapers to a small head ---
+    b.limb("neck", "chest", -0.62, 34, 22, 12, HORSE)
+    b.limb("crest", "neck", -0.22, 16, 12, 10, HORSE)
+    b.limb("head", "crest", -0.05, 26, 14, 8, HORSE)
     hx, hy = b.on("head")
     b.deco("muzzle", "head", hx + 1, hy + 1, 0.0, "circle", [], (62, 52, 46),
-           6.5)
+           6.0)
     b.deco("nostril", "muzzle", hx + 1, hy - 1, 0.0, "circle", [], (26, 20, 18),
            1.8)
     b.deco("jaw", "head", hx - 3, hy + 5, 0.0, "poly",
@@ -399,26 +401,26 @@ def _horse(coat=None, trim=None, scale=1.0):
     b.deco("forelock", "head", hx - 25, hy - 7, 0.0, "poly",
            [(-3, 3), (4, -7), (12, -5), (5, 4)], MANE)
     nx, ny = b.on("chest")   # the mane runs along the whole neck, from the base
-    b.deco("mane", "neck", nx, ny, -0.52, "poly",
-           [(-2, 2), (8, -4), (22, -5), (36, -4), (46, -1),
-            (36, 1), (20, 1), (-2, 4)], MANE)
+    b.deco("mane", "neck", nx, ny, -0.62, "poly",
+           [(-2, 2), (10, -5), (26, -6), (42, -4), (52, -1),
+            (42, 1), (24, 2), (-2, 4)], MANE)
     if coat:
-        # caparison hangs from the saddle: over the barrel, under the near legs
+        # caparison: a blanket lying on the back, not a skirt over the legs
         rx, ry = b.on("rump")
         cx, cy = b.on("chest")
-        mx, my = (rx + cx) / 2, (ry + cy) / 2 - 14
-        b.deco("cloth", "barrel", mx, my, 1.5708, "poly",
-               [(-30, 0), (30, 0), (34, 26), (12, 22), (-10, 26), (-34, 22)],
+        mx, my = (rx + cx) / 2, (ry + cy) / 2 - 12
+        b.deco("cloth", "barrel", mx, my, 0.06, "poly",
+               [(-38, -3), (38, -3), (35, 15), (12, 12), (-12, 15), (-38, 14)],
                coat)
-        b.deco("trim", "cloth", mx, my + 21, 1.5708, "poly",
-               [(-32, -6), (32, -6), (32, 4), (-32, 4)], trim or GOLD)
+        b.deco("trim", "cloth", mx, my + 12, 0.06, "poly",
+               [(-36, -3), (36, -3), (36, 3), (-36, 3)], trim or GOLD)
     # --- near legs, in front of the barrel ---
-    b.link("leg_hn", "root", (-21, -58), 1.52, 26, 17, 10, near)
-    b.limb("knee_hn", "leg_hn", 1.66, 24, 10, 6, near)
-    b.limb("hoof_hn", "knee_hn", 1.57, 9, 10, 9, HOOF)
-    b.link("leg_fn", "root", (15, -60), 1.50, 26, 17, 10, near)
-    b.limb("knee_fn", "leg_fn", 1.68, 24, 10, 6, near)
-    b.limb("hoof_fn", "knee_fn", 1.57, 9, 10, 9, HOOF)
+    b.link("leg_hn", "root", (-35, -60), 1.50, 29, 16, 10, near)
+    b.limb("knee_hn", "leg_hn", 1.62, 22, 10, 6, near)
+    b.limb("hoof_hn", "knee_hn", 1.55, 9, 10, 9, HOOF)
+    b.link("leg_fn", "root", (27, -62), 1.50, 28, 16, 10, near)
+    b.limb("knee_fn", "leg_fn", 1.64, 22, 10, 6, near)
+    b.limb("hoof_fn", "knee_fn", 1.55, 8, 10, 9, HOOF)
     # --- tack on top ---
     rx, ry = b.on("rump")
     bx, by = b.on("barrel")
@@ -434,8 +436,8 @@ def _horse(coat=None, trim=None, scale=1.0):
 
 
 def make_horse_rig(coat=None, trim=None, scale=1.0):
-    # canvas half-extents: nose ~+112, tail ~-46, withers -84, hooves 0
-    return _horse(coat, trim, scale).build(int(124 * scale), int(116 * scale))
+    # canvas half-extents: nose ~+118, tail ~-96, withers -86, hooves 0
+    return _horse(coat, trim, scale).build(int(132 * scale), int(120 * scale))
 
 
 STEEL_ARM_W = (11, 8)
@@ -575,7 +577,7 @@ def horse_pose(speed, phase, air=0.0, panic=0.0):
         a[hip] = -swing + air * (0.9 if near else -0.5)
         a[knee] = fold
         a[hoof] = -fold * 0.9
-    a["body"] = -0.07 * gallop + 0.05 * math.sin(p + 0.8) * gallop
+    a["rump"] = -0.07 * gallop + 0.05 * math.sin(p + 0.8) * gallop
     a["chest"] = 0.05 * math.sin(p + 1.1) * gallop
     a["neck"] = (0.34 * gallop + 0.08 * math.sin(p + 1.2) + panic * 0.20)
     a["crest"] = -0.10 * gallop
