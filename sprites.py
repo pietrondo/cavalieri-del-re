@@ -501,14 +501,15 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
     b.deco("gorget", "torso", sx, sy - 4, 0.0, "circle", [], steel_d, 5.5)
     b.deco("neck", "torso", sx, sy - 10, 0.0, "circle", [], steel_d, 4.0)
     # a helm is roughly as wide as it is tall: big enough to read as a head
-    b.link("head", "neck", (sx + 1, sy - 11), -0.08, 17, 17, 14, steel)
+    b.link("head", "neck", (sx + 1, sy - 11), -0.08, 19, 18, 15, steel)
     hx, hy = b.on("head")
-    # a light helm with one dark visor band reads instantly as a helmet; a
-    # bright nasal bar over a dark face just reads as a letter.
+    # the helm must read as a HEAD, so the face stays light: a short eye slit
+    # at the FRONT and a small breath slit. A slit as long as the helm, or a
+    # big dark visor, turns the head into a black box.
     b.deco("visor", "head", hx - 1, hy, -0.08, "poly",
-           [(-12, -3), (2, -4), (3, 2), (-12, 3)], (18, 20, 28))
-    b.deco("breathe", "head", hx - 1, hy + 6, -0.08, "poly",
-           [(-9, -1), (1, -1), (1, 1), (-9, 1)], (26, 28, 36))
+           [(-8, -2), (2, -3), (3, 1), (-8, 1.5)], (18, 20, 28))
+    b.deco("breathe", "head", hx - 5, hy + 6, -0.08, "poly",
+           [(-3, -1), (0, -1), (0, 4), (-3, 4)], (26, 28, 36))
     b.deco("brow", "head", hx - 8, hy - 8, -0.08, "poly",
            [(-2, 0), (14, -3), (14, 2), (-2, 2)], _tone(steel, 1.20))
     if crest:
