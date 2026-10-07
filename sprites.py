@@ -332,11 +332,14 @@ class Builder:
     def link(self, name, parent, at, ang, length, w0, w1, color):
         """A limb whose START is pinned at a world point, not at the parent's
         tip. Used for the barrel, which hangs off the root anchor."""
+        s = self.scale
         x, y = at[0] + math.cos(ang) * length, at[1] + math.sin(ang) * length
-        b = Bone(name, parent, at[0], at[1], ang, length, w0, w1, color, "limb",
-                 scale=self.scale)
+        # the scale applies to the GEOMETRY (positions, lengths, thickness),
+        # never to the canvas: scaling the rendered image would blur it.
+        b = Bone(name, parent, at[0] * s, at[1] * s, ang, length * s,
+                 w0 * s, w1 * s, color, "limb", scale=s)
         self.j.append(b)
-        self.pos[name] = (x, y)
+        self.pos[name] = (x, y)      # kept UNSCALED for chaining
         return self
 
     def limb(self, name, parent, ang, length, w0, w1, color):
@@ -347,8 +350,10 @@ class Builder:
         return self
 
     def deco(self, name, parent, x, y, ang, shape, pts, color, size=0.0):
-        self.j.append(Bone(name, parent, x, y, ang, size, 0, 0, color, shape,
-                           pts, scale=self.scale))
+        s = self.scale
+        self.j.append(Bone(name, parent, x * s, y * s, ang, size * s, 0, 0,
+                           color, shape, [(px * s, py * s) for px, py in pts],
+                           scale=s))
         self.pos[name] = (x, y)
         return self
 
@@ -371,20 +376,20 @@ def _horse(coat=None, trim=None, scale=1.0):
     b.limb("tail2", "tail", 2.60, 18, 6, 4, MANE)
     b.limb("tail3", "tail2", 2.75, 14, 4, 2, MANE)
     # --- far legs: the barrel covers them, so they read as depth ---
-    b.link("leg_hf", "root", (-38, -60), 1.50, 29, 15, 9, far)
-    b.limb("knee_hf", "leg_hf", 1.62, 22, 9, 6, far)
-    b.limb("hoof_hf", "knee_hf", 1.55, 9, 9, 8, HOOF)
-    b.link("leg_ff", "root", (24, -62), 1.50, 28, 15, 9, far)
-    b.limb("knee_ff", "leg_ff", 1.64, 22, 9, 6, far)
-    b.limb("hoof_ff", "knee_ff", 1.55, 8, 9, 8, HOOF)
-    # --- barrel: long enough that the front and hind legs stand apart ---
-    b.link("rump", "root", (-56, -70), 0.12, 30, 30, 28, HORSE)
-    b.limb("barrel", "rump", -0.05, 40, 28, 25, HORSE)
-    b.limb("chest", "barrel", -0.08, 24, 25, 22, HORSE)
+    b.link("leg_hf", "root", (-38, -60), 1.50, 29, 17, 11, far)
+    b.limb("knee_hf", "leg_hf", 1.62, 22, 12, 9, far)
+    b.limb("hoof_hf", "knee_hf", 1.55, 9, 11, 9, HOOF)
+    b.link("leg_ff", "root", (24, -62), 1.50, 28, 17, 11, far)
+    b.limb("knee_ff", "leg_ff", 1.64, 22, 12, 9, far)
+    b.limb("hoof_ff", "knee_ff", 1.55, 8, 11, 9, HOOF)
+    # --- barrel: deep enough that the legs do not read as stilts ---
+    b.link("rump", "root", (-56, -70), 0.12, 30, 34, 32, HORSE)
+    b.limb("barrel", "rump", -0.05, 40, 32, 28, HORSE)
+    b.limb("chest", "barrel", -0.08, 24, 28, 24, HORSE)
     # --- neck rises thick from the chest and tapers to a small head ---
-    b.limb("neck", "chest", -0.62, 34, 22, 12, HORSE)
-    b.limb("crest", "neck", -0.22, 16, 12, 10, HORSE)
-    b.limb("head", "crest", -0.05, 26, 14, 8, HORSE)
+    b.limb("neck", "chest", -0.80, 34, 22, 12, HORSE)
+    b.limb("crest", "neck", -0.55, 16, 12, 10, HORSE)
+    b.limb("head", "crest", 0.30, 26, 14, 8, HORSE)
     hx, hy = b.on("head")
     b.deco("muzzle", "head", hx + 1, hy + 1, 0.0, "circle", [], (62, 52, 46),
            6.0)
@@ -401,7 +406,7 @@ def _horse(coat=None, trim=None, scale=1.0):
     b.deco("forelock", "head", hx - 25, hy - 7, 0.0, "poly",
            [(-3, 3), (4, -7), (12, -5), (5, 4)], MANE)
     nx, ny = b.on("chest")   # the mane runs along the whole neck, from the base
-    b.deco("mane", "neck", nx, ny, -0.62, "poly",
+    b.deco("mane", "neck", nx, ny, -0.80, "poly",
            [(-2, 2), (10, -5), (26, -6), (42, -4), (52, -1),
             (42, 1), (24, 2), (-2, 4)], MANE)
     if coat:
@@ -415,12 +420,12 @@ def _horse(coat=None, trim=None, scale=1.0):
         b.deco("trim", "cloth", mx, my + 12, 0.06, "poly",
                [(-36, -3), (36, -3), (36, 3), (-36, 3)], trim or GOLD)
     # --- near legs, in front of the barrel ---
-    b.link("leg_hn", "root", (-35, -60), 1.50, 29, 16, 10, near)
-    b.limb("knee_hn", "leg_hn", 1.62, 22, 10, 6, near)
-    b.limb("hoof_hn", "knee_hn", 1.55, 9, 10, 9, HOOF)
-    b.link("leg_fn", "root", (27, -62), 1.50, 28, 16, 10, near)
-    b.limb("knee_fn", "leg_fn", 1.64, 22, 10, 6, near)
-    b.limb("hoof_fn", "knee_fn", 1.55, 8, 10, 9, HOOF)
+    b.link("leg_hn", "root", (-35, -60), 1.50, 29, 18, 12, near)
+    b.limb("knee_hn", "leg_hn", 1.62, 22, 13, 9, near)
+    b.limb("hoof_hn", "knee_hn", 1.55, 9, 12, 10, HOOF)
+    b.link("leg_fn", "root", (27, -62), 1.50, 28, 18, 12, near)
+    b.limb("knee_fn", "leg_fn", 1.64, 22, 13, 9, near)
+    b.limb("hoof_fn", "knee_fn", 1.55, 8, 12, 10, HOOF)
     # --- tack on top ---
     rx, ry = b.on("rump")
     bx, by = b.on("barrel")
@@ -440,8 +445,8 @@ def make_horse_rig(coat=None, trim=None, scale=1.0):
     return _horse(coat, trim, scale).build(int(132 * scale), int(120 * scale))
 
 
-STEEL_ARM_W = (11, 8)
-LEG_W = (13, 10)
+STEEL_ARM_W = (13, 9)
+LEG_W = (14, 11)
 SHOULDER = (1.0, -74.0)
 HIP = (0.0, -52.0)
 
@@ -462,8 +467,8 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
     b.link("thigh_f", "root", (HIP[0] - 4, HIP[1]), 1.46, 25, *LEG_W, cloth_d)
     b.limb("shin_f", "thigh_f", 1.80, 23, 10, 7, steel_d)
     b.limb("foot_f", "shin_f", 0.10, 10, 8, 5, (58, 46, 36))
-    # --- torso: short and broad, so the head is not swallowed by it ---
-    b.link("torso", "root", HIP, -1.5708, 26, 15, 17, cloth)
+    # --- torso: narrow hips, broad shoulders, so the head is not swallowed ---
+    b.link("torso", "root", HIP, -1.5708, 26, 14, 18, cloth)
     b.deco("tabard", "torso", HIP[0], HIP[1], 1.5708, "poly",
            [(-7, -1), (7, -1), (8, 17), (-8, 17)], cloth_d)
     b.deco("belt", "torso", HIP[0], HIP[1] - 2, 1.5708, "poly",
@@ -493,6 +498,12 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
     b.link("arm_n", "root", (SHOULDER[0] + 3, SHOULDER[1]), 0.90, 19,
            *STEEL_ARM_W, steel)
     b.limb("fa_n", "arm_n", 1.00, 18, 8, 7, steel)
+    # pauldrons, drawn last so they sit over the shoulders: without them the
+    # arms leave the body at a bare joint and the figure looks like a stick.
+    b.deco("pauldron_n", "torso", SHOULDER[0] + 3, SHOULDER[1] + 2, 0.0,
+           "circle", [], steel, 7.0)
+    b.deco("pauldron_f", "torso", SHOULDER[0] - 6, SHOULDER[1] + 2, 0.0,
+           "circle", [], steel_d, 6.5)
     hx, hy = b.on("fa_n")
     if lance:
         # the shaft is a child of the forearm, so it inherits the whole arm's
@@ -538,7 +549,7 @@ ARM_DOWN = 0.92
 FORE_DOWN = 1.00
 
 _RIDE = {
-    "torso": 0.34, "neck": -0.22, "head": -0.10,
+    "torso": 0.18, "neck": -0.12, "head": -0.06,
     "arm_f": -0.30, "fa_f": -0.55,
     "arm_n": -0.42, "fa_n": -0.50,
     "thigh": -0.35, "shin": 0.55, "foot": 0.22,
