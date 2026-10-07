@@ -372,9 +372,9 @@ def _horse(coat=None, trim=None, scale=1.0):
     b = Builder(scale)
     b.deco("root", None, 0, 0, 0.0, "circle", [], HORSE, 1.0)
     # --- behind the horse ---
-    b.link("tail", "root", (-50, -74), 2.40, 24, 11, 6, MANE)
-    b.limb("tail2", "tail", 2.60, 18, 6, 4, MANE)
-    b.limb("tail3", "tail2", 2.75, 14, 4, 2, MANE)
+    b.link("tail", "root", (-52, -74), 2.45, 18, 13, 9, HORSE_D)
+    b.limb("tail2", "tail", 2.10, 22, 9, 6, MANE)
+    b.limb("tail3", "tail2", 1.85, 22, 6, 3, MANE)
     # --- far legs: the barrel covers them, so they read as depth ---
     b.link("leg_hf", "root", (-38, -60), 1.50, 29, 17, 11, far)
     b.limb("knee_hf", "leg_hf", 1.62, 22, 12, 9, far)
@@ -407,8 +407,8 @@ def _horse(coat=None, trim=None, scale=1.0):
            [(-3, 3), (4, -7), (12, -5), (5, 4)], MANE)
     nx, ny = b.on("chest")   # the mane runs along the whole neck, from the base
     b.deco("mane", "neck", nx, ny, -0.80, "poly",
-           [(-2, 2), (10, -5), (26, -6), (42, -4), (52, -1),
-            (42, 1), (24, 2), (-2, 4)], MANE)
+           [(-2, 2), (10, -5), (24, -6), (34, -4), (40, -1),
+            (34, 1), (22, 2), (-2, 4)], MANE)
     if coat:
         # caparison: a blanket lying on the back, not a skirt over the legs
         rx, ry = b.on("rump")
@@ -479,12 +479,14 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
     # a helm is roughly as wide as it is tall: big enough to read as a head
     b.link("head", "neck", (sx + 1, sy - 11), -0.08, 17, 17, 14, steel)
     hx, hy = b.on("head")
-    b.deco("visor", "head", hx + 7, hy + 1, -0.08, "poly",
-           [(0, -1.6), (10, -2.2), (10, 1.6), (0, 1.6)], (20, 22, 30))
-    b.deco("brow", "head", hx - 7, hy - 7, -0.08, "poly",
+    b.deco("visor", "head", hx, hy, -0.08, "poly",
+           [(-11, -6), (1, -7), (2, 6), (-11, 7)], (18, 20, 28))
+    b.deco("nasal", "head", hx, hy, -0.08, "poly",
+           [(-6, -9), (-3, -9), (-3, 9), (-6, 9)], steel)
+    b.deco("eyeslit", "head", hx, hy, -0.08, "poly",
+           [(-10, -3), (0, -3), (0, -1), (-10, -1)], (8, 8, 12))
+    b.deco("brow", "head", hx - 8, hy - 8, -0.08, "poly",
            [(-2, 0), (14, -3), (14, 2), (-2, 2)], _tone(steel, 1.20))
-    b.deco("cheek", "head", hx - 7, hy + 5, -0.08, "poly",
-           [(-2, -1), (10, -1), (9, 4), (-2, 4)], _tone(steel, 0.86))
     if crest:
         b.deco("crest", "head", hx - 5, hy - 7, -0.08, "poly",
                [(-3, 0), (6, -8), (16, -11), (7, -12), (-2, -6)], crest)
@@ -521,12 +523,16 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
                [(1, -3), (38, -3), (45, 0), (38, 3), (1, 3)], (226, 232, 242))
         b.deco("ricasso", "fa_n", hx + 1, hy, 0.26, "poly",
                [(0, -3), (5, -3), (5, 3), (0, 3)], (176, 182, 194))
+        b.deco("hand", "fa_n", hx, hy, 0.26, "circle", [],
+               _tone(steel_d, 0.85), 5.0)
     elif weapon == "spear":
         b.deco("shaft", "fa_n", hx, hy, 0.30, "poly",
                [(-18, -1.7), (56, -1.7), (56, 1.7), (-18, 1.7)], WOOD)
         b.deco("tip", "fa_n", hx + math.cos(0.30) * 56,
                hy + math.sin(0.30) * 56, 0.30, "poly",
                [(0, -3.8), (16, 0), (0, 3.8)], (200, 206, 216))
+        b.deco("hand", "fa_n", hx, hy, 0.30, "circle", [],
+               _tone(steel_d, 0.85), 5.0)
     return b
 
 
