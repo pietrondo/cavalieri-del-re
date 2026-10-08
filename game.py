@@ -460,9 +460,13 @@ class Knight(Actor):
             riding = 1.0 - min(1.0, self.st / MOUNT_TIME)
         elif self.state == ST_MOUNT:
             riding = min(1.0, self.st / MOUNT_TIME)
+        # in the saddle the rider rides the horse's stride: same phase, and
+        # sway scaled by how fast the horse is actually moving
+        phase = self.horse.phase if self.on_horse else self.phase
+        gait = min(1.0, self.horse.speed / HORSE_SPEED) if self.on_horse else 0.0
         ang, lift = sprites.rider_pose(
-            self.phase, riding=riding,
-            moving=0.0 if self.on_horse else 1.0,
+            phase, riding=riding,
+            moving=gait if self.on_horse else 1.0,
             air=self.air,
             attack=0.0 if self.gallop else max(0.0, self.attack),
             reach=1.0 if self.gallop else 0.0,

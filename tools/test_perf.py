@@ -63,3 +63,19 @@ class HitStopTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RiderGaitTests(unittest.TestCase):
+    """Regression: a mounted rider was frozen in the saddle, because the sway
+    was multiplied by a `moving` flag that is always 0 while riding."""
+
+    def test_mounted_rider_sways_with_the_stride(self):
+        poses = [sprites.rider_pose(p / 8.0, riding=1.0, moving=1.0)[0]
+                 for p in range(8)]
+        thighs = {round(a["thigh"], 3) for a in poses}
+        self.assertGreater(len(thighs), 1)
+
+    def test_standing_horse_gives_no_rider_sway(self):
+        still = [sprites.rider_pose(p / 8.0, riding=1.0, moving=0.0)[0]
+                 for p in range(8)]
+        self.assertEqual(len({round(a["thigh"], 3) for a in still}), 1)
