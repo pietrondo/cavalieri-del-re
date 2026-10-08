@@ -783,11 +783,15 @@ def horse_pose(speed, phase, air=0.0, panic=0.0):
     a = {}
     motion = min(1.0, max(0.0, speed) / 7.0) * (1 - air)
     gallop = min(1.0, max(0.0, speed) / 6.0) * (1 - panic * 0.4)
+    # Rotary gallop, one stride = one cycle: the forelegs strike together
+    # (lead pair), the hindlegs follow as a pair ~0.36 later, then the
+    # suspension phase. The old offsets put the hind pair 0.18 apart, so the
+    # gait looked like a trot with extra bounce.
     for hip, knee, hoof, off, hind in (
-        ("leg_hn", "knee_hn", "hoof_hn", 0.54, True),
-        ("leg_hf", "knee_hf", "hoof_hf", 0.72, True),
         ("leg_fn", "knee_fn", "hoof_fn", 0.00, False),
-        ("leg_ff", "knee_ff", "hoof_ff", 0.18, False),
+        ("leg_ff", "knee_ff", "hoof_ff", 0.08, False),
+        ("leg_hn", "knee_hn", "hoof_hn", 0.38, True),
+        ("leg_hf", "knee_hf", "hoof_hf", 0.46, True),
     ):
         u = p + TAU * off
         swing = math.sin(u)
