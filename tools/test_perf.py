@@ -114,6 +114,10 @@ class GuardGaitTests(unittest.TestCase):
         phases = {round(game.Guard(100.0 + i * 30).phase, 3) for i in range(8)}
         self.assertGreater(len(phases), 1)
 
+    def test_guards_walk_at_different_paces(self):
+        speeds = {round(game.Guard(100.0 + i * 30).speed, 3) for i in range(8)}
+        self.assertGreater(len(speeds), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

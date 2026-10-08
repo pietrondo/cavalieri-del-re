@@ -185,6 +185,8 @@ class Guard(Actor):
         # each guard starts somewhere in its stride: a column that all steps
         # in unison is what made the enemies look like a marching undead line
         self.phase = random.random()
+        # and no two walk at the same pace: +-15% on the base speed
+        self.speed *= random.uniform(0.85, 1.15)
 
     @property
     def tx(self):
