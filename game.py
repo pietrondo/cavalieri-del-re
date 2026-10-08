@@ -52,17 +52,50 @@ def ease(t):
     return t * t * (3 - 2 * t)
 
 
+_FONTS = {}
+
+
 def font(size):
-    return pygame.font.Font(None, size)
+    """Fonts are loaded from disk: build each size once, not every frame."""
+    f = _FONTS.get(size)
+    if f is None:
+        f = _FONTS[size] = pygame.font.Font(None, size)
+    return f
 
 
-def contact_shadow(surf, x, y, w, alpha=95):
-    """A flat ellipse under an actor. Without it a dark sprite on a dusk
-    background just floats; with it the character is planted on the ground."""
-    h = max(4, int(w * 0.34))
-    s = pygame.Surface((int(w * 2), h), pygame.SRCALPHA)
-    pygame.draw.ellipse(s, (14, 12, 20, alpha), s.get_rect())
-    surf.blit(s, (int(x - w), int(y - h * 0.5)))
+_SHADOWS = {}
+
+
+def contact_shadow(surf, x, y, w, alpha=110):
+    """Multi-layer soft contact shadow with ambient penumbra and core."""
+    key = (round(w), alpha)
+    if key not in _SHADOWS:
+        _SHADOWS[key] = _build_shadow(w, alpha)
+    s = _SHADOWS[key]
+    surf.blit(s, (int(x - s.get_width() // 2), int(y - s.get_height() * 0.5)))
+
+
+def _build_shadow(w, alpha):
+    h = max(6, int(w * 0.36))
+    sw, sh = int(w * 2.2), h + 4
+    s = pygame.Surface((sw, sh), pygame.SRCALPHA)
+    pygame.draw.ellipse(s, (14, 12, 18, int(alpha * 0.45)), s.get_rect())
+    core_rect = pygame.Rect(int(sw * 0.18), int(sh * 0.22), int(sw * 0.64), int(sh * 0.56))
+    pygame.draw.ellipse(s, (10, 8, 14, int(alpha * 0.85)), core_rect)
+    return s
+
+
+_VEILS = {}
+
+
+def _veil(rgba):
+    """Velo a tutto schermo, costruito una volta per colore: prima veniva
+    riallocato a ogni frame (960x540 di superficie nuova ogni volta)."""
+    if rgba not in _VEILS:
+        v = pygame.Surface((W, H), pygame.SRCALPHA)
+        v.fill(rgba)
+        _VEILS[rgba] = v
+    return _VEILS[rgba]
 
 
 # --------------------------------------------------------------------------
@@ -135,16 +168,19 @@ class Guard(Actor):
         elif kind == "spear":
             super().__init__(x, sprites.make_human_rig(
                 0.94 * HUMAN_S, sprites.GREY, sprites.GREY_D, (58, 96, 98),
-                (38, 66, 70), weapon="spear", plume=False, shield=False), 3, 2.5)
+                (38, 66, 70), weapon="spear", plume=False, shield=False,
+                kettle=True), 3, 2.5)
             self.dmg, self.reach, self.on_horse = 1, 70.0, False
         else:
             super().__init__(x, sprites.make_human_rig(
                 0.90 * HUMAN_S, sprites.GREY, sprites.GREY_D, sprites.OCHRE,
-                sprites.OCHRE_D, weapon="sword", plume=False, shield=True), 4, 2.0)
+                sprites.OCHRE_D, weapon="sword", plume=False, shield=True,
+                kettle=True), 4, 2.0)
             self.dmg, self.reach, self.on_horse = 1, 62.0, False
         self.kind = kind
         self.cooldown = random.uniform(0.4, 1.4)
         self.telegraph = 0.0
+        self.telegraph_max = 0.36
 
     @property
     def tx(self):
@@ -161,6 +197,16 @@ class Guard(Actor):
             else:
                 ang, lift = sprites.rider_pose(self.phase, riding=0.0, moving=0.0,
                                               attack=self.attack)
+            return ang, lift
+        if self.telegraph > 0:
+            u = ease(1.0 - (self.telegraph / max(0.01, self.telegraph_max)))
+            if self.kind in ("rider", "spear"):
+                ang, lift = sprites.rider_pose(self.phase, riding=1.0 if self.on_horse
+                                              else 0.0, moving=0.0,
+                                              reach=0.45 * u)
+            else:
+                ang, lift = sprites.rider_pose(self.phase, riding=0.0, moving=0.0,
+                                              attack=0.25 * u)
             return ang, lift
         return sprites.rider_pose(self.phase,
                                   riding=1.0 if self.on_horse else 0.0,
@@ -186,16 +232,40 @@ class Guard(Actor):
                                           (0.0, lift - SEAT if self.on_horse else lift),
                                           dark=dark, flip=self.face < 0)
             if alpha < 1.0:
+                img = img.copy()
                 img.set_alpha(int(255 * alpha))
             sprites.blit(surf, img, self.rig, self.tx - cam_x, self.y)
+            if not self.dead:
+                if self.telegraph > 0:
+                    t_pulse = pygame.time.get_ticks() * 0.025
+                    rad = int(12 + 3 * math.sin(t_pulse))
+                    wx = int(self.tx - cam_x)
+                    wy = int(self.y - (105 if self.on_horse else 80))
+                    halo = pygame.Surface((rad * 2 + 8, rad * 2 + 8), pygame.SRCALPHA)
+                    pygame.draw.circle(halo, (255, 60, 40, 110), (rad + 4, rad + 4), rad)
+                    surf.blit(halo, (wx - rad - 4, wy - rad - 4))
+                    pygame.draw.circle(surf, (255, 230, 80), (wx, wy), 7)
+                    pygame.draw.circle(surf, (200, 30, 20), (wx, wy), 7, 2)
+                    f_warn = font(22)
+                    t_warn = f_warn.render("!", True, (20, 15, 15))
+                    surf.blit(t_warn, t_warn.get_rect(center=(wx, wy)))
+                elif self.stun > 0:
+                    st_ang = pygame.time.get_ticks() * 0.009
+                    for s_i in range(3):
+                        sa = st_ang + s_i * (math.tau / 3)
+                        sx = int(self.tx - cam_x + math.cos(sa) * 16)
+                        sy = int(self.y - (98 if self.on_horse else 74) + math.sin(sa) * 5)
+                        pygame.draw.circle(surf, (255, 220, 80), (sx, sy), 3)
+                        pygame.draw.circle(surf, (255, 255, 200), (sx, sy), 1)
 
-    def hurt(self, dmg, from_x):
+    def hurt(self, dmg, from_x, heavy=False):
         self.hp -= dmg
-        self.flash = 0.18
-        self.stun = 0.30
-        self.x += 14 if from_x < self.tx else -14
+        self.flash = 0.22 if heavy else 0.18
+        self.stun = max(self.stun, 0.45 if heavy else 0.30)
+        dist = 24 if heavy else 14
+        self.x += dist if from_x < self.tx else -dist
         if self.horse:
-            self.horse.x += 14 if from_x < self.tx else -14
+            self.horse.x += dist if from_x < self.tx else -dist
         if self.hp <= 0:
             self.hp = 0
             self.dead = True
@@ -220,6 +290,9 @@ class Knight(Actor):
         self.cooldown = 0.0
         self.shield = 0.0
         self.gold = 0
+        self.combo_step = 0
+        self.combo_timer = 0.0
+        self.shake = 0.0
 
     # -- mount ------------------------------------------------------------
     def toggle_mount(self):
@@ -232,11 +305,12 @@ class Knight(Actor):
         return self.y >= GROUND - 0.6
 
     # -- input ------------------------------------------------------------
-    def update(self, dt, keys, foes):
+    def update(self, dt, keys, foes, fx=None):
         self.tick(dt)
         self.invuln = max(0.0, self.invuln - dt)
         self.knock = max(0.0, self.knock - dt)
         self.cooldown = max(0.0, self.cooldown - dt)
+        self.combo_timer = max(0.0, self.combo_timer - dt)
         if self.shield > 0:
             self.shield = max(0.0, self.shield - dt)
 
@@ -256,7 +330,7 @@ class Knight(Actor):
 
         if self.attack > 0:
             self.attack = max(0.0, self.attack - dt / ATTACK_TIME)
-            self.sword_hit(foes)
+            self.sword_hit(foes, fx)
 
         if self.state in (ST_DIS, ST_MOUNT):
             self.st += dt
@@ -303,22 +377,58 @@ class Knight(Actor):
             return False
         if self.state in (ST_DEAD, ST_WIN, ST_DIS, ST_MOUNT):
             return False
+        if self.combo_timer > 0:
+            self.combo_step = (self.combo_step + 1) % 3
+        else:
+            self.combo_step = 0
+        self.combo_timer = 0.52
         self.attack = 1.0
         self.hit_ids.clear()
-        self.cooldown = 0.10
+        self.cooldown = 0.06 if self.combo_step < 2 else 0.20
         return True
 
-    def sword_hit(self, foes):
+    def sword_hit(self, foes, fx=None):
         if not (HIT_LO <= self.attack <= HIT_HI):
             return
-        reach = LANCE_REACH if self.gallop else SWORD_REACH
+        is_charge = self.gallop
+        is_finisher = (self.combo_step == 2 and not is_charge)
+        reach = LANCE_REACH if is_charge else (SWORD_REACH * 1.15 if is_finisher else SWORD_REACH)
         ox = self.x + self.face * reach * 0.45
+        dmg_base = 4 if is_charge else (4 if is_finisher else 2)
         for e in foes:
             if e.dead or id(e) in self.hit_ids:
                 continue
-            if abs(e.tx - ox) < reach and abs(e.y - self.y) < 64:
+            if abs(e.tx - ox) < reach and abs(e.y - self.y) < 68:
                 self.hit_ids.add(id(e))
-                e.hurt(3 if self.gallop else 2, self.x)
+                is_parry = (e.telegraph > 0) or (e.attack > 0.45)
+                dmg = dmg_base + (2 if is_parry else 0)
+                if is_parry:
+                    e.telegraph = 0.0
+                    e.attack = 0.0
+                    e.stun = 0.85
+                    e.hurt(dmg, self.x, heavy=True)
+                    if fx:
+                        fx.pop(e.tx, e.y - 100, "PARATA!", (120, 220, 255))
+                        fx.ring(e.tx, e.y - 45, (130, 215, 255))
+                        fx.burst(e.tx, e.y - 45, (200, 245, 255), 18)
+                    self.shake = max(self.shake, 0.20)
+                    if fx:
+                        fx.hitstop = max(fx.hitstop, 0.09)   # la parata pesa
+                else:
+                    e.hurt(dmg, self.x, heavy=is_finisher or is_charge)
+                    if fx:
+                        fx.pop(e.tx, e.y - 75, "-%d" % dmg,
+                               (255, 230, 110) if not is_finisher else (255, 190, 80))
+                        fx.burst(ox, e.y - 45, (255, 220, 90),
+                                 10 if not is_finisher else 18)
+                        if is_finisher or is_charge:
+                            fx.ring(ox, e.y - 45, (255, 210, 120))
+                    self.shake = max(self.shake, 0.16 if (is_finisher or is_charge) else 0.08)
+                    if fx and (is_finisher or is_charge):
+                        fx.hitstop = max(fx.hitstop, 0.06)   # colpo pieno: un frame di pausa
+                if e.hp <= 0 and fx:
+                    fx.pop(e.tx, e.y - 95, "SCONFITTO!", (255, 180, 80))
+                    fx.burst(e.tx, e.y - 40, (255, 130, 60), 16)
 
     def take_hit(self, dmg, from_x):
         if self.invuln > 0 or self.state in (ST_DEAD, ST_WIN):
@@ -355,7 +465,8 @@ class Knight(Actor):
             moving=0.0 if self.on_horse else 1.0,
             air=self.air,
             attack=0.0 if self.gallop else max(0.0, self.attack),
-            reach=1.0 if self.gallop else 0.0)
+            reach=1.0 if self.gallop else 0.0,
+            combo=self.combo_step)
         return ang, lift - SEAT * riding
 
     def draw(self, surf, cam_x):
@@ -423,6 +534,7 @@ class Pickup:
 class Fx:
     def __init__(self):
         self.parts, self.pops, self.rings, self.slashes = [], [], [], []
+        self.hitstop = 0.0   # secondi di gioco congelato dopo un colpo pesante
 
     def burst(self, x, y, col, n=10):
         for _ in range(n):
@@ -437,8 +549,8 @@ class Fx:
     def ring(self, x, y, col):
         self.rings.append([x, y, 4.0, col, 0.35])
 
-    def slash(self, x, y, face, reach):
-        self.slashes.append([x, y, face, reach, 0.22, 0.22])
+    def slash(self, x, y, face, reach, kind=0, foe=False):
+        self.slashes.append([x, y, face, reach, 0.22, 0.22, kind, foe])
 
     def update(self, dt):
         for p in self.parts:
@@ -462,30 +574,57 @@ class Fx:
     def draw(self, surf, cam_x):
         f = font(26)
         for s in self.slashes:
-            x, y, face, reach, t_rem, t_max = s
+            x, y, face, reach, t_rem, t_max = s[:6]
+            kind = s[6] if len(s) > 6 else 0
+            foe = s[7] if len(s) > 7 else False
             progress = 1.0 - t_rem / t_max
-            alpha = int(220 * (1.0 - progress))
+            alpha = int(230 * (1.0 - progress))
             if alpha <= 0:
                 continue
-            r_in = reach * 0.45
-            r_out = reach * 0.95
+            r_in = reach * (0.42 if kind < 2 else 0.35)
+            r_out = reach * (0.95 if kind < 2 else 1.15)
             sx = int(x - cam_x)
             sy = int(y)
-            sz = int(r_out * 2 + 20)
+            sz = int(r_out * 2 + 24)
             arc_surf = pygame.Surface((sz, sz), pygame.SRCALPHA)
             cx, cy = sz // 2, sz // 2
             pts = []
-            for deg in range(-55, 30, 5):
+            if kind == 1:
+                deg_in = range(45, -45, -5)
+                deg_out = range(-40, 50, 5)
+            elif kind == 2:
+                deg_in = range(-65, 40, 5)
+                deg_out = range(35, -70, -5)
+            else:
+                deg_in = range(-55, 30, 5)
+                deg_out = range(25, -60, -5)
+
+            y_squash = 0.70 if kind != 1 else 0.85
+            for deg in deg_in:
                 rad = math.radians(deg)
-                pts.append((cx + face * math.cos(rad) * r_in, cy + math.sin(rad) * r_in * 0.75))
-            for deg in range(25, -60, -5):
+                pts.append((cx + face * math.cos(rad) * r_in, cy + math.sin(rad) * r_in * y_squash))
+            for deg in deg_out:
                 rad = math.radians(deg)
-                pts.append((cx + face * math.cos(rad) * r_out, cy + math.sin(rad) * r_out * 0.75))
+                pts.append((cx + face * math.cos(rad) * r_out, cy + math.sin(rad) * r_out * y_squash))
+
+            if foe:
+                fill_col = (245, 60, 60, alpha // 2)
+                line_col = (255, 170, 170, alpha)
+            elif kind == 1:
+                fill_col = (130, 215, 255, alpha // 2)
+                line_col = (235, 250, 255, alpha)
+            elif kind == 2:
+                fill_col = (255, 210, 80, int(alpha * 0.6))
+                line_col = (255, 245, 210, alpha)
+            else:
+                fill_col = (220, 235, 255, alpha // 2)
+                line_col = (255, 255, 255, alpha)
+
             if len(pts) >= 3:
-                pygame.draw.polygon(arc_surf, (220, 235, 255, alpha // 2), pts)
+                pygame.draw.polygon(arc_surf, fill_col, pts)
                 inner_pts = pts[len(pts) // 4: 3 * len(pts) // 4]
                 if len(inner_pts) >= 2:
-                    pygame.draw.lines(arc_surf, (255, 255, 255, alpha), False, inner_pts, 3)
+                    pygame.draw.lines(arc_surf, line_col, False, inner_pts, 3 if kind < 2 else 4)
             surf.blit(arc_surf, (sx - cx, sy - cy))
         for r in self.rings:
             pygame.draw.circle(surf, r[3], (int(r[0] - cam_x), int(r[1])),
@@ -557,9 +696,13 @@ def run():
     banner = ""
     banner_t = 0.0
     won = False
+    cam_shake = 0.0
 
     while True:
         dt = min(clock.tick(FPS) / 1000.0, 1 / 30.0)
+        if fx.hitstop > 0:       # hit-stop: il mondo si ferma, la scena si ridisegna
+            fx.hitstop = max(0.0, fx.hitstop - dt)
+            dt = 0.0
         elapsed += dt
         keys = pygame.key.get_pressed()
 
@@ -577,12 +720,12 @@ def run():
                     knight.toggle_mount()
                 if ev.key in (pygame.K_SPACE, pygame.K_j):
                     if knight.start_attack():
-                        reach = LANCE_REACH if knight.gallop else SWORD_REACH
+                        reach = LANCE_REACH if knight.gallop else (SWORD_REACH * 1.15 if knight.combo_step == 2 else SWORD_REACH)
                         fx.slash(knight.x + knight.face * reach * 0.45,
                                  knight.y - (SEAT * 0.5 if knight.on_horse else 38),
-                                 knight.face, reach)
+                                 knight.face, reach, kind=knight.combo_step)
                         fx.ring(knight.x + knight.face * reach * 0.5, GROUND - 46,
-                                (230, 220, 190))
+                                (230, 220, 190) if knight.combo_step < 2 else (255, 220, 110))
                 if ev.key == pygame.K_r and knight.state in (ST_DEAD, ST_WIN):
                     knight = Knight(60.0)
                     foes, kills = [], 0
@@ -591,6 +734,7 @@ def run():
                     spawn_i, elapsed, intro, gate = 0, 0.0, 1.6, 0.0
                     won = False
                     banner, banner_t = "", 0.0
+                    cam_shake = 0.0
 
         if intro > 0:
             intro -= dt
@@ -604,7 +748,7 @@ def run():
             foes.append(Guard(spawn_x(kind, knight.x), kind))
             spawn_i += 1
 
-        knight.update(dt, keys, foes)
+        knight.update(dt, keys, foes, fx)
 
         # foes
         alive = 0
@@ -619,23 +763,35 @@ def run():
             alive += 1
             e.tick(dt)
             dx = knight.x - e.tx
-            if abs(dx) > 2 and e.stun <= 0:
+            if abs(dx) > 2 and e.stun <= 0 and e.telegraph <= 0:
                 e.face = 1 if dx > 0 else -1
                 if e.horse:
                     e.horse.face = e.face
-            if e.attack > 0:
+            if e.stun > 0:
+                e.telegraph = 0.0
+            elif e.telegraph > 0:
+                e.telegraph -= dt
+                if e.telegraph <= 0:
+                    e.attack = 1.0
+                    e.telegraph = 0.0
+                    e.hit_ids.clear()
+                    reach = e.reach
+                    fx.slash(e.tx + e.face * reach * 0.45,
+                             e.y - (SEAT * 0.5 if e.on_horse else 38),
+                             e.face, reach, kind=0, foe=True)
+            elif e.attack > 0:
                 e.attack = max(0.0, e.attack - dt / ATTACK_TIME)
-                if HIT_LO <= e.attack <= HIT_HI and e.telegraph:
-                    e.telegraph = 0
+                if HIT_LO <= e.attack <= HIT_HI and id(knight) not in e.hit_ids:
                     if abs(e.tx - knight.x) < e.reach and abs(e.y - knight.y) < 70:
+                        e.hit_ids.add(id(knight))
                         if knight.take_hit(e.dmg, e.tx):
-                            fx.burst(knight.x, knight.y - 48, (206, 64, 56), 12)
+                            fx.burst(knight.x, knight.y - 48, (206, 64, 56), 14)
                             fx.pop(knight.x, knight.y - 82, "-%d" % e.dmg,
                                    (255, 130, 118))
                             fx.ring(knight.x, knight.y - 44, (200, 70, 60))
-                continue
-            e.telegraph = 0
-            if e.stun <= 0:
+                            cam_shake = max(cam_shake, 0.18)
+            else:
+                e.hit_ids.clear()
                 if abs(dx) > e.reach * 0.8:
                     e.x += e.face * e.speed
                     if e.horse:
@@ -646,9 +802,9 @@ def run():
                 else:
                     e.cooldown -= dt
                     if e.cooldown <= 0:
-                        e.attack, e.telegraph = 1.0, 1
-                        e.cooldown = rng.uniform(1.0, 1.9)
-                        fx.pop(e.tx, knight.y - 120, "!", (250, 210, 120))
+                        e.telegraph = 0.40 if e.kind == "spear" else 0.34
+                        e.telegraph_max = e.telegraph
+                        e.cooldown = rng.uniform(1.2, 2.0)
             e.x = max(world.GATE_X0 - 220.0, e.x)
 
         kills += sum(1 for e in foes if e.dead and e.dead_t < dt * 2)
@@ -684,27 +840,32 @@ def run():
         cam_x += ((knight.x - W * 0.38) - cam_x) * min(1.0, dt * 6)
         cam_x = max(-120.0, min(cam_x, world.GOAL_X + 120.0 - W * 0.3))
 
+        if getattr(knight, "shake", 0.0) > 0:
+            cam_shake = max(cam_shake, knight.shake)
+            knight.shake = 0.0
+        cam_shake = max(0.0, cam_shake - dt)
+        shake_ox = random.uniform(-1.0, 1.0) * (cam_shake * 42.0) if cam_shake > 0 else 0.0
+        draw_cam = cam_x + shake_ox
+
         # ---- draw ----
         world.draw_sky(screen)
-        world.draw_background(screen, cam_x)
-        world.draw_goal(screen, cam_x, elapsed)
-        world.draw_ground(screen, cam_x)
-        world.draw_props(screen, cam_x)
-        world.draw_castle(screen, cam_x)
-        world.draw_portcullis(screen, cam_x, gate)
+        world.draw_background(screen, draw_cam)
+        world.draw_goal(screen, draw_cam, elapsed)
+        world.draw_ground(screen, draw_cam)
+        world.draw_props(screen, draw_cam)
+        world.draw_castle(screen, draw_cam)
+        world.draw_portcullis(screen, draw_cam, gate)
 
         for p in pickups:
             if not p.taken:
-                p.draw(screen, cam_x)
+                p.draw(screen, draw_cam)
         for e in sorted(foes, key=lambda g: g.y):
-            if abs(e.tx - cam_x - W / 2) < W:
-                e.draw(screen, cam_x, dark=0.72 if e.flash > 0 else 1.0)
-        knight.draw(screen, cam_x)
+            if abs(e.tx - draw_cam - W / 2) < W / 2 + 160:  # cull off-screen
+                e.draw(screen, draw_cam, dark=0.72 if e.flash > 0 else 1.0)
+        knight.draw(screen, draw_cam)
         if knight.flash > 0:
-            veil = pygame.Surface((W, H), pygame.SRCALPHA)
-            veil.fill((255, 90, 80, int(70 * knight.flash / 0.22)))
-            screen.blit(veil, (0, 0))
-        fx.draw(screen, cam_x)
+            screen.blit(_veil((255, 90, 80, int(70 * knight.flash / 0.22))), (0, 0))
+        fx.draw(screen, draw_cam)
 
         draw_hud(screen, knight, alive, kills, banner, banner_t, intro)
         pygame.display.flip()
@@ -733,6 +894,12 @@ def draw_hud(screen, knight, alive, kills, banner, banner_t, intro):
     if knight.state in (ST_DEAD, ST_WIN):
         hint = "R: ricomincia"
     screen.blit(s.render(hint, True, (226, 220, 200)), (24, 68))
+    if knight.combo_timer > 0 and knight.state not in (ST_DEAD, ST_WIN):
+        combo_names = ["1: FENDENTE", "2: ASCENDENTE", "3: AFFONDO!"]
+        c_str = f"COMBO {combo_names[knight.combo_step % 3]}"
+        col = (255, 230, 100) if knight.combo_step == 2 else (200, 230, 255)
+        c_surf = s.render(c_str, True, col)
+        screen.blit(c_surf, (24, 90))
     ctrl = s.render("A/D muovi  W salta  SPAZCO attacca  SHIFT galoppo  "
                     "E cavalca  F schermo", True, (196, 196, 190))
     screen.blit(ctrl, (24, H - 26))
@@ -748,9 +915,8 @@ def draw_hud(screen, knight, alive, kills, banner, banner_t, intro):
         screen.blit(img, img.get_rect(center=(W // 2, 120)))
 
     if intro > 0:
-        panel = pygame.Surface((W, 104), pygame.SRCALPHA)
-        panel.fill((0, 0, 0, 175))
-        screen.blit(panel, (0, 150))
+        screen.blit(_veil((0, 0, 0, 175))
+                    .subsurface((0, 0, W, 104)), (0, 150))
         t1 = f.render("LIVELLO 1 - LA FUGA DA CASTEL ROSSO", True, (244, 226, 180))
         t2 = s.render("Le guardie del re ti cercano. Cavalca, raccogli i "
                       "provviste, scendi e combatti.", True, (226, 222, 210))
@@ -758,9 +924,8 @@ def draw_hud(screen, knight, alive, kills, banner, banner_t, intro):
         screen.blit(t2, t2.get_rect(center=(W // 2, 220)))
 
     if knight.state in (ST_DEAD, ST_WIN):
-        veil = pygame.Surface((W, H), pygame.SRCALPHA)
-        veil.fill((10, 12, 20, 165) if knight.state == ST_WIN else (44, 8, 8, 175))
-        screen.blit(veil, (0, 0))
+        screen.blit(_veil((10, 12, 20, 165) if knight.state == ST_WIN
+                          else (44, 8, 8, 175)), (0, 0))
         t = f.render("FUGA RIUSCITA" if knight.state == ST_WIN else "SEI CADUTO",
                      True, (250, 226, 150) if knight.state == ST_WIN else (240, 170, 160))
         sub = s.render("Premi R per ricominciare", True, (230, 226, 210))
