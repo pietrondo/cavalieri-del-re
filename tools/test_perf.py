@@ -107,6 +107,14 @@ class FinisherStepTests(unittest.TestCase):
         self.assertEqual(k.x, before)
 
 
+class GuardGaitTests(unittest.TestCase):
+    """Regression: every enemy started at phase 0 and marched in unison."""
+
+    def test_guards_do_not_start_in_unison(self):
+        phases = {round(game.Guard(100.0 + i * 30).phase, 3) for i in range(8)}
+        self.assertGreater(len(phases), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
 

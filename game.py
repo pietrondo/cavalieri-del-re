@@ -182,6 +182,9 @@ class Guard(Actor):
         self.cooldown = random.uniform(0.4, 1.4)
         self.telegraph = 0.0
         self.telegraph_max = 0.36
+        # each guard starts somewhere in its stride: a column that all steps
+        # in unison is what made the enemies look like a marching undead line
+        self.phase = random.random()
 
     @property
     def tx(self):
@@ -220,9 +223,18 @@ class Guard(Actor):
             ang["head"] = ang.get("head", 0.0) - 0.30 * u
             ang["arm_f"] = ang.get("arm_f", 0.0) - 0.25 * u
             return ang, lift
-        return sprites.rider_pose(self.phase,
-                                  riding=1.0 if self.on_horse else 0.0,
-                                  moving=1.0, air=0.0)
+        ang, lift = sprites.rider_pose(self.phase,
+                                       riding=1.0 if self.on_horse else 0.0,
+                                       moving=1.0, air=0.0)
+        if not self.on_horse:
+            # a living step: the torso rocks over each foot, the head follows,
+            # and the sword arm's forearm stays flexed instead of locked straight
+            t = math.tau * self.phase
+            ang["torso"] = ang.get("torso", 0.0) + 0.07 + 0.05 * math.sin(2 * t)
+            ang["head"] = ang.get("head", 0.0) + 0.05 * math.sin(2 * t + 0.8)
+            ang["fa_n"] = ang.get("fa_n", 0.0) - 0.22
+            lift += -2.2 * abs(math.sin(t))   # bob at every footfall
+        return ang, lift
 
     def draw(self, surf, cam_x, dark=1.0):
         alpha = 1.0
