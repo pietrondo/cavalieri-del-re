@@ -276,6 +276,8 @@ PEBBLES = _pebbles()
 MEADOW_ROWS = [(MEADOW + i * 2.0, _mix(GRASS_D, GRASS_L, (i / 8.0) ** 1.3))
                for i in range(9)]
 
+STONE_DARK_GREY = (92, 96, 104)
+
 def _tufts():
     """Ciuffi d'erba pre-generati: come i ciottoli, scorrono col mondo."""
     rng, out, x = random.Random(13), [], 0.0
@@ -298,6 +300,27 @@ def _draw_tufts(surf, cam_x):
         for lean in (-0.45, 0.0, 0.45):
             _l(surf, col, (sx, base), (sx + lean * h, base - h), 1)
 
+_STONES = []
+_rng_s, _x_s = random.Random(29), 0.0
+while _x_s < ROAD_X1:
+    _x_s += _rng_s.uniform(60, 150)
+    _STONES.append((_x_s, _rng_s.uniform(0.6, 1.4), _rng_s.uniform(0, 1)))
+
+
+def _draw_stones(surf, cam_x):
+    """Sassi piatti nella fascia del prato: stilizzati, come i ciottoli della
+    strada. Chiaro in cima, scuro alla base, scorrono col mondo."""
+    for wx, k, t in _STONES:
+        sx = wx - cam_x
+        if not -30 < sx < W + 30:
+            continue
+        y = MEADOW + 19 + t * 3.0
+        rw, rh = 5.0 * k, 2.6 * k
+        _e(surf, _tone(STONE_DARK_GREY, 0.8), sx - rw, y - rh * 0.4, rw * 2, rh * 1.6)
+        _e(surf, _tone(STONE_DARK_GREY, 1.25), sx - rw * 0.7, y - rh * 1.1,
+           rw * 1.2, rh * 1.1)
+
+
 _VIGNETTE = None
 
 def _vignette():
@@ -315,6 +338,7 @@ def draw_ground(surf, cam_x):
         _r(surf, col, 0, y, W, 3)
     _r(surf, GRASS, 0, MEADOW + 14, W, H)
     _draw_tufts(surf, cam_x)
+    _draw_stones(surf, cam_x)
     _road_track(surf, cam_x, 1.4, _mix(GRASS_D, ROAD_D, 0.45), -4.0)  # orlo
     _road_track(surf, cam_x, 1.0, ROAD_D)
     _road_track(surf, cam_x, 1.0, ROAD, dy=1.0)
