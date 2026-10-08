@@ -667,6 +667,20 @@ def draw_props(surf, cam_x):
     _DK = 1.0
 
 # --- uscita: muro di foresta e svolta di luce sulla strada -----------------
+_BEAMS = {}
+
+
+def _beam(k):
+    """Fascio di luce premoltiplicato per un livello di brillantezza k."""
+    key = round(k, 4)
+    if key not in _BEAMS:
+        beam = pygame.Surface((360, 320), pygame.SRCALPHA)
+        _p(beam, (int(WARM[0] * k), int(WARM[1] * k), int(WARM[2] * k), 255),
+           [(168, 0), (198, 0), (330, 320), (34, 320)])
+        _BEAMS[key] = beam
+    return _BEAMS[key]
+
+
 def draw_goal(surf, cam_x, t):
     """La strada entra nel bosco: muro di foresta e svolta di luce."""
     sx = GOAL_X - cam_x
@@ -685,10 +699,8 @@ def draw_goal(surf, cam_x, t):
     glow = 0.5 + 0.5 * math.sin(t * 1.6)     # raggio di luce pulsante
     # il fascio e' additivo: il colore va premoltiplicato per l'alpha, se no
     # BLEND_RGBA_ADD somma il colore pieno e il raggio diventa una lancia
-    k = (26 + 16 * glow) / 255.0
-    beam = pygame.Surface((360, 320), pygame.SRCALPHA)
-    _p(beam, (int(WARM[0] * k), int(WARM[1] * k), int(WARM[2] * k), 255),
-       [(168, 0), (198, 0), (330, 320), (34, 320)])
+    k = round((26 + 16 * glow) / 2.0) * 2.0 / 255.0   # 2 livelli: cache hit
+    beam = _beam(k)
     surf.blit(beam, (int(sx - 180), int(GROUND - 320)),
               special_flags=pygame.BLEND_RGBA_ADD)
     _add_glow(surf, 320, 300, (255, 216, 152), sx, PROP_Y - 150, 2.0,

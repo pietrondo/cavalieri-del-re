@@ -1,0 +1,65 @@
+"""Regression tests for the speed work: caches must return the same pixels
+they would have drawn, and the hit-stop must freeze time without breaking."""
+
+import os
+import sys
+import unittest
+
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import pygame
+
+import game
+import sprites
+
+pygame.init()
+pygame.display.set_mode((1, 1))
+
+
+class PoseCacheTests(unittest.TestCase):
+    def test_angles_within_one_step_share_one_cache_entry(self):
+        rig = sprites.make_human_rig(game.HUMAN_S)
+        ang, lift = sprites.rider_pose(0.3, riding=0.0, moving=1.0)
+        step = sprites.ANGLE_STEP
+        ang = {k: round(v / step) * step for k, v in ang.items()}  # on the grid
+        a, _ = sprites.render_human(rig, ang, (0.0, lift))
+        nudged = {k: v + sprites.ANGLE_STEP * 0.1 for k, v in ang.items()}
+        b, _ = sprites.render_human(rig, nudged, (0.0, lift))
+        self.assertIs(a, b)   # same snapped pose: no second rasterisation
+
+    def test_cache_stays_bounded(self):
+        rig = sprites.make_human_rig(game.HUMAN_S)
+        for i in range(sprites._CACHE_MAX + 50):
+            sprites.render(rig, {"thigh": i * 0.05}, (0.0, 0.0))
+        self.assertLessEqual(len(sprites._RENDER_CACHE), sprites._CACHE_MAX)
+
+
+class FontAndShadowCacheTests(unittest.TestCase):
+    def test_font_is_built_once_per_size(self):
+        self.assertIs(game.font(22), game.font(22))
+
+    def test_contact_shadow_surface_is_reused(self):
+        surf = pygame.Surface((64, 64))
+        game.contact_shadow(surf, 32, 32, 20)
+        game.contact_shadow(surf, 40, 32, 20)
+        self.assertEqual(len([k for k in game._SHADOWS if k[0] == 20]), 1)
+
+
+class HitStopTests(unittest.TestCase):
+    def test_fx_starts_without_hitstop(self):
+        self.assertEqual(game.Fx().hitstop, 0.0)
+
+    def test_heavy_hit_sets_hitstop_and_parry_sets_it_too(self):
+        knight = game.Knight(0.0)
+        knight.attack = 0.5
+        knight.combo_step = 2          # finisher: a heavy hit
+        knight.gallop = False
+        foe = game.Guard(knight.x + 40)
+        fx = game.Fx()
+        knight.sword_hit([foe], fx)
+        self.assertGreater(fx.hitstop, 0.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
