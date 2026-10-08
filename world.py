@@ -342,7 +342,7 @@ def draw_ground(surf, cam_x):
     _road_track(surf, cam_x, 1.4, _mix(GRASS_D, ROAD_D, 0.45), -4.0)  # orlo
     _road_track(surf, cam_x, 1.0, ROAD_D)
     _road_track(surf, cam_x, 1.0, ROAD, dy=1.0)
-    _road_track(surf, cam_x, 0.45, ROAD_L, dy=3.0)  # centro piu' chiaro
+    _road_track(surf, cam_x, 0.45, _mix(ROAD_L, ROAD, 0.4), dy=3.0)  # centro, meno chiaro
     cx = W * 0.5 + math.sin(cam_x * 0.0011) * 70.0
     for side in (-1, 1):          # due solchi: la carreggiata in prospettiva
         prev, x = None, -60.0
@@ -352,7 +352,7 @@ def draw_ground(surf, cam_x):
             p = (int(cx + side * (70.0 + 300.0 * t) + j),
                  int(ROAD_TOP + 3 + (H + 10 - ROAD_TOP) * t))
             if prev:
-                _l(surf, _tone(ROAD_D, 0.84), prev, p, 5)
+                _l(surf, _tone(ROAD_D, 0.74), prev, p, 6)  # solchi piu' marcati
             prev, x = p, x + 34
     for wx, wy, t, off, lit in PEBBLES:     # ciottoli: grandi in primo piano
         sx = wx - cam_x                   # e piccoli in lontananza
