@@ -28,6 +28,7 @@ GRAV = 0.62
 JUMP_V = -13.0
 ATTACK_TIME = 0.38
 HIT_LO, HIT_HI = 0.25, 0.65
+FINISHER_STEP = 92.0   # px/s: about 14 px across the strike window
 SWORD_REACH = 78 * 1.28
 LANCE_REACH = 112 * 1.42
 INVULN = 0.80
@@ -341,6 +342,11 @@ class Knight(Actor):
 
         if self.attack > 0:
             self.attack = max(0.0, self.attack - dt / ATTACK_TIME)
+            # finisher on foot: a real step into the cut during the strike, so
+            # the hit zone travels with the body instead of staying behind it
+            if (self.combo_step == 2 and not self.on_horse and not self.gallop
+                    and HIT_LO <= self.attack <= HIT_HI and self.knock <= 0):
+                self.x += self.face * FINISHER_STEP * dt
             self.sword_hit(foes, fx)
 
         if self.state in (ST_DIS, ST_MOUNT):

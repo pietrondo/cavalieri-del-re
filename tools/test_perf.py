@@ -81,6 +81,32 @@ class HitReactionTests(unittest.TestCase):
         self.assertLess(k.pose()[0]["torso"], rest)
 
 
+class FinisherStepTests(unittest.TestCase):
+    """Regression: the finisher swung at a hit zone the body had already left."""
+
+    def _knight(self):
+        from collections import defaultdict
+        k = game.Knight(100.0)
+        k.on_horse = False
+        k.combo_step = 2
+        k.gallop = False
+        return k, defaultdict(bool)
+
+    def test_finisher_steps_forward_during_the_strike(self):
+        k, keys = self._knight()
+        k.attack = 0.5
+        before = k.x
+        k.update(0.05, keys, [])
+        self.assertGreater(k.x, before)
+
+    def test_no_step_outside_the_strike_window(self):
+        k, keys = self._knight()
+        k.attack = 0.9
+        before = k.x
+        k.update(0.05, keys, [])
+        self.assertEqual(k.x, before)
+
+
 if __name__ == "__main__":
     unittest.main()
 
