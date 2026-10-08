@@ -134,8 +134,8 @@ class Guard(Actor):
             self.on_horse = True
         elif kind == "spear":
             super().__init__(x, sprites.make_human_rig(
-                0.94 * HUMAN_S, sprites.GREY, sprites.GREY_D, sprites.OCHRE,
-                sprites.OCHRE_D, weapon="spear", plume=False, shield=False), 3, 2.5)
+                0.94 * HUMAN_S, sprites.GREY, sprites.GREY_D, (58, 96, 98),
+                (38, 66, 70), weapon="spear", plume=False, shield=False), 3, 2.5)
             self.dmg, self.reach, self.on_horse = 1, 70.0, False
         else:
             super().__init__(x, sprites.make_human_rig(
