@@ -799,13 +799,13 @@ def horse_pose(speed, phase, air=0.0, panic=0.0):
         stance = max(0.0, -math.cos(u - 0.55))
         if hind:
             # Hind leg: drive backward, tuck forward under belly with articulated hock and hoof
-            a[hip] = motion * (-0.74 * swing + 0.14)
-            a[knee] = motion * (-0.88 * gather + 0.12 * stance)
+            a[hip] = motion * (-0.66 * swing + 0.12)
+            a[knee] = motion * (-0.70 * gather + 0.12 * stance)
             a[hoof] = motion * (0.22 * swing - 0.32 * gather + 0.10 * stance)
         else:
             # Foreleg: reach forward, fold carpus cleanly during recovery, cushion impact on stance
-            a[hip] = motion * (-0.72 * swing - 0.10)
-            a[knee] = motion * (1.02 * gather + 0.08 * stance)
+            a[hip] = motion * (-0.60 * swing - 0.10)
+            a[knee] = motion * (0.62 * gather + 0.08 * stance)
             a[hoof] = motion * (0.22 * swing - 0.30 * gather - 0.08 * stance)
         if air:
             a[hip] += air * (0.45 if hind else -0.5)
