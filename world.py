@@ -209,12 +209,16 @@ def _layer(tw, base, amp, seed, harm, col, lit, par, trees=0, th=(18, 34)):
         _p(s, _tone(col, 1.2), tree)
     return s, par
 
+# Prospettiva aerea: piu' un piano e' lontano, piu' si confonde col cielo
+# all'orizzonte. Senza questa foschia le colline sembrano ritagli piatti.
+HAZE = (118, 96, 124)
 LAYERS = (
-    _layer(1400, 318, 66, 11, [(1, .62), (2, .26), (5, .12)], MOUNT, MOUNT_LIT,
-           0.06),
-    _layer(1200, 392, 42, 23, [(1, .6), (3, .3), (7, .1)], HILL, HILL_LIT,
-           0.14),
-    _layer(1100, 430, 24, 31, [(1, .55), (2, .3), (6, .15)], WOOD_FAR, None,
+    _layer(1400, 318, 66, 11, [(1, .62), (2, .26), (5, .12)],
+           _mix(MOUNT, HAZE, 0.34), _mix(MOUNT_LIT, HAZE, 0.22), 0.06),
+    _layer(1200, 392, 42, 23, [(1, .6), (3, .3), (7, .1)],
+           _mix(HILL, HAZE, 0.22), _mix(HILL_LIT, HAZE, 0.14), 0.14),
+    _layer(1100, 430, 24, 31, [(1, .55), (2, .3), (6, .15)],
+           _mix(WOOD_FAR, HAZE, 0.12), None,
            0.28, trees=70, th=(15, 28)),
     _layer(980, 456, 20, 47, [(1, .5), (3, .32), (8, .18)], WOOD_NEAR, None,
            0.46, trees=52, th=(24, 50)),
@@ -272,12 +276,45 @@ PEBBLES = _pebbles()
 MEADOW_ROWS = [(MEADOW + i * 2.0, _mix(GRASS_D, GRASS_L, (i / 8.0) ** 1.3))
                for i in range(9)]
 
+def _tufts():
+    """Ciuffi d'erba pre-generati: come i ciottoli, scorrono col mondo."""
+    rng, out, x = random.Random(13), [], 0.0
+    while x < ROAD_X1:
+        x += rng.uniform(9, 26)
+        out.append((x, rng.uniform(0, 1), rng.uniform(0.7, 1.3)))
+    return out
+
+TUFTS = _tufts()
+
+def _draw_tufts(surf, cam_x):
+    """Tre fili a ventaglio per ciuffo, due toni: il prato ha una grana."""
+    for wx, t, k in TUFTS:
+        sx = wx - cam_x
+        if not -20 < sx < W + 20:
+            continue
+        base = MEADOW + 15 + t * 4.0
+        h = (3.0 + t * 4.0) * k
+        col = GRASS_L if t > 0.6 else GRASS_D
+        for lean in (-0.45, 0.0, 0.45):
+            _l(surf, col, (sx, base), (sx + lean * h, base - h), 1)
+
+_VIGNETTE = None
+
+def _vignette():
+    """Ombra di crepuscolo in basso: stacca i personaggi dal terreno."""
+    s = pygame.Surface((W, 120), pygame.SRCALPHA)
+    for y in range(120):
+        a = int(70 * (y / 119.0) ** 2)
+        pygame.draw.line(s, (12, 10, 20, a), (0, y), (W, y))
+    return s
+
 def draw_ground(surf, cam_x):
     """Prato, strada in prospettiva, ciottoli e la luce dell'uscita."""
     _r(surf, _mix(GRASS_D, HILL, 0.45), 0, MEADOW - 8, W, 12)
     for y, col in MEADOW_ROWS:                     # il verde scende al terreno
         _r(surf, col, 0, y, W, 3)
     _r(surf, GRASS, 0, MEADOW + 14, W, H)
+    _draw_tufts(surf, cam_x)
     _road_track(surf, cam_x, 1.4, _mix(GRASS_D, ROAD_D, 0.45), -4.0)  # orlo
     _road_track(surf, cam_x, 1.0, ROAD_D)
     _road_track(surf, cam_x, 1.0, ROAD, dy=1.0)
@@ -302,6 +339,10 @@ def draw_ground(surf, cam_x):
     sx = GOAL_X - cam_x
     if -240 < sx < W + 240:
         _add_glow(surf, 420, 110, WARM, sx, ROAD_TOP + 34, 1.8, 110)
+    global _VIGNETTE
+    if _VIGNETTE is None:
+        _VIGNETTE = _vignette()
+    surf.blit(_VIGNETTE, (0, H - 120))
 
 # --- archi, merlature e muratura: il vocabolario del castello --------------
 def _arch(cx, cy, r, seg=16, top=True):
