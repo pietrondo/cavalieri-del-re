@@ -13,6 +13,7 @@ Rest angles are explicit and `Rig` asserts that every limb actually reaches its
 child joint, so a bad rest pose fails loudly instead of drawing garbage.
 """
 
+import functools
 import math
 from dataclasses import dataclass, field
 
@@ -150,6 +151,7 @@ LIGHT = (-0.42, -0.91)
 RIM = (0.55, 0.83)          # opposite: the cool bounce edge
 
 
+@functools.lru_cache(maxsize=8192)
 def _tone(c, f):
     return (max(0, min(255, int(c[0] * f))),
             max(0, min(255, int(c[1] * f))),
@@ -162,6 +164,7 @@ def _tint(c, k, f):
                  for i in range(3))
 
 
+@functools.lru_cache(maxsize=8192)
 def _mix(a, b, t):
     return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
@@ -178,8 +181,8 @@ def _shade_poly(surf, pts, base, outline):
     span = max(1.0, max(proj) - min(proj))
     pygame.draw.polygon(surf, outline, pts, int(OUTLINE_W * SS * 0.6))
     pygame.draw.polygon(surf, _tone(base, 0.94), pts)
-    for cut, col in ((0.14, _tone(base, 1.16)),
-                     (0.44, _tone(base, 1.34)),
+    for cut, col in ((0.14, _tone(base, 1.10)),
+                     (0.44, _tone(base, 1.18)),
                      (-0.30, _mix(base, _tone((44, 56, 82), 0.9), 0.40))):
         sel = [(x, y) for (x, y), t in zip(pts, proj)
                if (t > span * cut if cut > 0 else t < span * cut)]
@@ -235,10 +238,18 @@ def _draw(surf, b, gx, gy, ga, dark, occl):
     # 1. outline
     ow = OUTLINE_W
     pygame.draw.polygon(surf, outline, quad(r0 + ow, r1 + ow, 0.0))
-    pygame.draw.circle(surf, outline, (int(gx * SS), int(gy * SS)),
-                       int((r0 + ow) * SS))
-    pygame.draw.circle(surf, outline, (int(ex * SS), int(ey * SS)),
-                       int((r1 + ow) * SS))
+    internal_starts = {"barrel", "chest", "crest", "head", "fa_n", "fa_f",
+                       "knee_hn", "knee_hf", "knee_fn", "knee_ff",
+                       "shin", "shin_f", "tail2", "tail3"}
+    internal_ends = {"rump", "barrel", "neck", "crest", "arm_n", "arm_f",
+                     "leg_hn", "leg_hf", "leg_fn", "leg_ff",
+                     "thigh", "thigh_f", "tail", "tail2"}
+    if b.name not in internal_starts:
+        pygame.draw.circle(surf, outline, (int(gx * SS), int(gy * SS)),
+                           int((r0 + ow) * SS))
+    if b.name not in internal_ends:
+        pygame.draw.circle(surf, outline, (int(ex * SS), int(ey * SS)),
+                           int((r1 + ow) * SS))
     # 2. base fill
     pygame.draw.polygon(surf, base, quad(r0, r1, 0.0))
     pygame.draw.circle(surf, base, (int(gx * SS), int(gy * SS)), int(r0 * SS))
@@ -260,6 +271,18 @@ def _draw(surf, b, gx, gy, ga, dark, occl):
                             quad(r0 * 0.9, r1 * 0.9, r0 * 0.9 * sign))
 
 
+_RENDER_CACHE = {}
+_CACHE_MAX = 768
+# Angles are snapped to this step before the cache lookup. 0.02 rad is ~1 px at
+# the tip of a limb: invisible on screen, but it turns a continuous animation
+# into a finite set of poses, so the cache actually gets hits.
+ANGLE_STEP = 0.02
+
+
+def clear_cache():
+    _RENDER_CACHE.clear()
+
+
 def render(rig, angles=None, root=(0.0, 0.0), dark=1.0, flip=False,
            occluded=()):
     """-> (surface, transform). Inside the image the entity's feet point sits at
@@ -268,6 +291,17 @@ def render(rig, angles=None, root=(0.0, 0.0), dark=1.0, flip=False,
     `occluded` names bones to push back (far-side legs, the far arm): they get
     darkened and desaturated so depth reads without any real lighting.
     """
+    if angles:
+        angles = {k: round(v / ANGLE_STEP) * ANGLE_STEP for k, v in angles.items()}
+        ka = tuple(sorted(angles.items()))
+    else:
+        ka = ()
+    kr = (round(root[0], 1), round(root[1], 1))
+    key = (id(rig), ka, kr, round(dark, 2), flip, occluded)
+    hit = _RENDER_CACHE.get(key)
+    if hit is not None:
+        return hit
+
     tr = rig.solve(angles, root)
     # Most geometry is above the feet anchor. Keep enough room for hooves and
     # airborne poses below it, instead of supersampling an empty lower half.
@@ -283,7 +317,11 @@ def render(rig, angles=None, root=(0.0, 0.0), dark=1.0, flip=False,
     out = pygame.transform.smoothscale(surf, (rig.w * 2, out_h))
     if flip:
         out = pygame.transform.flip(out, True, False)
-    return _contour(out), tr
+    res = (_contour(out), tr)
+    if len(_RENDER_CACHE) >= _CACHE_MAX:
+        _RENDER_CACHE.clear()
+    _RENDER_CACHE[key] = res
+    return res
 
 
 CONTOUR_R = 1  # px of dark ring added around the whole silhouette
@@ -344,6 +382,12 @@ GREY_D = (86, 94, 108)
 BLACK = (56, 58, 68)
 
 
+def _ell(rx, ry, n=12, y0=0.0):
+    """Points of an ellipse centred on (0, y0): smooth shading on a bone."""
+    return [(rx * math.cos(math.tau * i / n), y0 + ry * math.sin(math.tau * i / n))
+            for i in range(n)]
+
+
 class Builder:
     """Author a rest pose without arithmetic: limbs chain off their parent's tip,
     decorations take world coordinates. Chains cannot come out broken."""
@@ -401,66 +445,112 @@ def _horse(coat=None, trim=None, scale=1.0):
     b.limb("tail3", "tail2", 1.85, 22, 6, 3, MANE)
     # --- far legs: the barrel covers them, so they read as depth ---
     b.link("leg_hf", "root", (-42, -57), 2.02, 29, 19, 11, far)
-    b.limb("knee_hf", "leg_hf", 1.25, 32.5, 11, 7, far)
+    b.limb("knee_hf", "leg_hf", 1.25, 32.5, 10, 6, far)
     b.limb("hoof_hf", "knee_hf", 0.20, 11, 10, 5, HOOF)
     b.link("leg_ff", "root", (22, -60), 1.27, 28, 18, 11, far)
-    b.limb("knee_ff", "leg_ff", 1.78, 34, 10, 7, far)
+    b.limb("knee_ff", "leg_ff", 1.78, 34, 10, 6, far)
     b.limb("hoof_ff", "knee_ff", 0.12, 11, 10, 5, HOOF)
     # --- barrel: deep enough that the legs do not read as stilts ---
     b.link("rump", "root", (-56, -69), 0.08, 31, 38, 40, HORSE)
     b.limb("barrel", "rump", -0.04, 42, 40, 37, HORSE)
     b.limb("chest", "barrel", -0.12, 25, 37, 30, HORSE)
+    rx, ry = b.on("rump")
+    cx, cy = b.on("chest")
+    b.deco("croup_curve", "rump", rx + 4, ry - 2, 0.0, "poly",
+           _ell(11, 9), _tone(HORSE, 1.12))
+    b.deco("flank_shade", "barrel", rx + 30, ry + 10, 0.0, "poly",
+           _ell(12, 7), _tone(HORSE, 0.86))
+    b.deco("chest_contour", "chest", cx + 6, cy + 2, 0.0, "poly",
+           _ell(9, 11), _tone(HORSE, 1.08))
+    # volume: luce lungo il dorso, ombra sotto la pancia. Senza, il busto e'
+    # un cilindro di un colore solo.
+    mx_, my_ = (rx + cx) / 2, (ry + cy) / 2
+    b.deco("back_hi", "barrel", mx_, my_ - 15, 0.0, "poly",
+           _ell(24, 4), _tone(HORSE, 1.24))
+    b.deco("belly_shade", "barrel", mx_, my_ + 17, 0.0, "poly",
+           _ell(26, 5), _tone(HORSE, 0.72))
     # --- neck rises thick from the chest and tapers to a small head ---
     b.limb("neck", "chest", -0.87, 35, 28, 15, HORSE)
     b.limb("crest", "neck", -0.48, 14, 17, 12, HORSE)
-    b.limb("head", "crest", 0.46, 24, 16, 11, HORSE)
+    b.limb("head", "crest", 0.46, 27, 19, 12, HORSE)
     hx, hy = b.on("head")
-    b.deco("muzzle", "head", hx + 1, hy + 3, 0.0, "circle", [], (80, 62, 53),
-           7.0)
-    b.deco("nostril", "muzzle", hx + 5, hy + 1, 0.0, "circle", [], (26, 20, 18),
-           1.6)
+    b.deco("muzzle", "head", hx + 1, hy + 3, 0.0, "circle", [], (70, 52, 44), 7.0)
+    b.deco("muzzle_lip", "head", hx + 3, hy + 5, 0.0, "poly",
+           [(-3, -2), (4, -2), (3, 2), (-3, 2)], (48, 34, 28))
+    b.deco("nostril", "muzzle", hx + 5, hy + 1, 0.0, "circle", [], (20, 15, 13), 1.8)
     b.deco("jaw", "head", hx - 10, hy + 5, 0.0, "poly",
            [(-8, -3), (9, -4), (13, 3), (1, 8), (-8, 5)], HORSE_D)
-    b.deco("eye", "head", hx - 11, hy - 7, 0.0, "circle", [], (16, 12, 10), 2.5)
-    b.deco("brow", "head", hx - 12, hy - 9, 0.0, "circle", [], (176, 117, 72), 1.8)
+    b.deco("jaw_hi", "head", hx - 8, hy + 3, 0.0, "poly",
+           [(-5, -2), (7, -3), (10, 2), (0, 5), (-5, 3)], _tone(HORSE, 1.15))
+    b.deco("eye", "head", hx - 11, hy - 7, 0.0, "circle", [], (18, 14, 12), 2.8)
+    b.deco("eye_shine", "head", hx - 10, hy - 8, 0.0, "circle", [], (255, 255, 255), 0.9)
+    b.deco("brow", "head", hx - 12, hy - 9, 0.0, "circle", [], (185, 122, 76), 2.0)
     b.deco("ear_a", "head", hx - 21, hy - 10, 0.0, "poly",
-           [(-3, 3), (-6, -13), (2, -9), (6, 2)], HORSE_D)
+           [(-3, 3), (-7, -14), (2, -10), (6, 2)], HORSE_D)
+    b.deco("ear_a_in", "head", hx - 20, hy - 11, 0.0, "poly",
+           [(-2, 2), (-5, -11), (0, -8), (4, 1)], (148, 98, 65))
     b.deco("ear_b", "head", hx - 16, hy - 10, 0.0, "poly",
-           [(-3, 3), (-4, -11), (3, -8), (5, 2)], HORSE_D)
+           [(-3, 3), (-5, -12), (3, -9), (5, 2)], HORSE_D)
     b.deco("forelock", "head", hx - 21, hy - 8, 0.0, "poly",
-           [(-7, 3), (-5, -6), (5, -4), (12, 2), (3, 0)], MANE)
+           [(-7, 3), (-5, -7), (6, -5), (14, 2), (4, 0)], MANE)
+    b.deco("forelock_hi", "head", hx - 20, hy - 9, 0.0, "poly",
+           [(-4, 2), (-3, -5), (4, -4), (10, 1), (2, 0)], (55, 45, 52))
     nx, ny = b.on("chest")   # the mane runs along the whole neck, from the base
     b.deco("mane", "neck", nx, ny, -0.80, "poly",
-           [(-2, 2), (10, -5), (24, -6), (34, -4), (40, -1),
-            (34, 1), (22, 2), (-2, 4)], MANE)
+           [(-2, 2), (10, -6), (25, -7), (35, -5), (42, -2),
+            (36, 1), (22, 3), (-2, 4)], MANE)
+    b.deco("mane_tufts", "neck", nx + 8, ny - 6, -0.80, "poly",
+           [(0, 0), (6, -4), (12, 0), (18, -4), (24, 0), (18, 3), (6, 3)], (45, 36, 42))
     if coat:
-        # caparison: a blanket lying on the back, not a skirt over the legs
+        # caparison: scalloped heraldic trappings with badge and gold trim
         rx, ry = b.on("rump")
         cx, cy = b.on("chest")
         mx, my = (rx + cx) / 2, (ry + cy) / 2 - 12
         b.deco("cloth", "barrel", mx, my, 0.06, "poly",
-               [(-38, -3), (38, -3), (35, 15), (12, 12), (-12, 15), (-38, 14)],
+               [(-39, -3), (39, -3), (36, 16), (12, 13), (-12, 16), (-39, 15)],
                coat)
-        b.deco("trim", "cloth", mx, my + 12, 0.06, "poly",
-               [(-36, -3), (36, -3), (36, 3), (-36, 3)], trim or GOLD)
+        b.deco("trim", "cloth", mx, my + 13, 0.06, "poly",
+               [(-37, -3), (37, -3), (37, 3), (-37, 3)], trim or GOLD)
+        b.deco("fringe", "cloth", mx, my + 16, 0.06, "poly",
+               [(-34, 0), (34, 0), (32, 4), (-32, 4)], _tone(trim or GOLD, 1.20))
+        b.deco("coat_badge_h", "cloth", mx - 16, my + 6, 0.06, "poly",
+               [(-5, -1.5), (5, -1.5), (5, 1.5), (-5, 1.5)], trim or GOLD)
+        b.deco("coat_badge_v", "cloth", mx - 16, my + 6, 0.06, "poly",
+               [(-1.5, -5), (1.5, -5), (1.5, 5), (-1.5, 5)], trim or GOLD)
     # --- near legs, in front of the barrel ---
     b.link("leg_hn", "root", (-36, -57), 2.02, 29, 20, 12, near)
-    b.limb("knee_hn", "leg_hn", 1.25, 32.5, 12, 7, near)
+    b.limb("knee_hn", "leg_hn", 1.25, 32.5, 10, 6, near)
     b.limb("hoof_hn", "knee_hn", 0.20, 11, 11, 5, HOOF)
     b.link("leg_fn", "root", (30, -60), 1.27, 28, 19, 11, near)
-    b.limb("knee_fn", "leg_fn", 1.78, 34, 11, 7, near)
+    b.limb("knee_fn", "leg_fn", 1.78, 34, 10, 6, near)
     b.limb("hoof_fn", "knee_fn", 0.12, 11, 11, 5, HOOF)
+    for hname in ("hoof_hn", "hoof_hf", "hoof_fn", "hoof_ff"):
+        hx_, hy_ = b.on(hname)
+        b.deco(f"shoe_{hname}", hname, hx_ + 1, hy_ + 3, 0.0, "poly",
+               [(-4, 0), (4, 0), (5, 2.5), (-4, 2.5)], (175, 182, 192))
     # --- tack on top ---
     rx, ry = b.on("rump")
     bx, by = b.on("barrel")
     mx, my = (rx + bx) / 2, (ry + by) / 2 - 26
+    b.deco("saddle_pad", "barrel", mx, my + 3, 0.0, "poly",
+           [(-19, -2), (19, -2), (17, 10), (-17, 10)], (55, 40, 30))
     b.deco("saddle", "barrel", mx, my, 0.0, "poly",
-           [(-16, -5), (16, -5), (13, 7), (-13, 7)], (98, 66, 44))
+           [(-16, -5), (16, -5), (13, 7), (-13, 7)], (108, 72, 46))
     b.deco("cantle", "saddle", mx - 12, my - 7, 0.0, "poly",
-           [(-5, 0), (5, 0), (4, 7), (-4, 7)], (98, 66, 44))
+           [(-5, 0), (5, 0), (4, 7), (-4, 7)], (88, 58, 38))
+    b.deco("cantle_gold", "saddle", mx - 12, my - 8, 0.0, "poly",
+           [(-4, 0), (4, 0), (3, 2), (-3, 2)], GOLD)
     b.deco("pommel", "saddle", mx + 14, my - 7, 0.0, "circle", [], GOLD, 4.5)
+    b.deco("pommel_stud", "saddle", mx + 14, my - 7, 0.0, "circle", [], (180, 25, 30), 2.0)
+    b.deco("stirrup_strap", "barrel", mx + 2, my + 6, 0.0, "poly",
+           [(-1.5, 0), (1.5, 0), (1.5, 20), (-1.5, 20)], (65, 46, 32))
+    b.deco("stirrup_iron", "barrel", mx + 2, my + 25, 0.0, "poly",
+           [(-3.5, 0), (3.5, 0), (3.5, 5), (-3.5, 5)], (190, 195, 205))
     b.deco("bridle", "head", hx - 5, hy - 2, 0.0, "poly",
            [(0, -9), (3, -9), (3, 9), (0, 9)], (62, 46, 34))
+    b.deco("bridle_brow", "head", hx - 13, hy - 7, 0.0, "poly",
+           [(-2, -2), (8, 0), (8, 2), (-2, 0)], (62, 46, 34))
+    b.deco("bit", "head", hx - 4, hy + 5, 0.0, "circle", [], GOLD, 2.5)
     return b
 
 
@@ -476,10 +566,20 @@ HIP = (0.0, -52.0)
 
 
 def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
-           crest, lance):
+           crest, lance, kettle=False):
     """Knight or guard. Feet y=0, head top ~y=-90. Faces +x."""
     b = Builder(scale)
     b.deco("root", None, 0, 0, 0.0, "circle", [], cloth, 1.0)
+    # --- cape, streaming back from the shoulders: a silhouette cue and the
+    # heraldic colour in one shape. Drawn before everything else, so it sits
+    # behind the body.
+    cx0, cy0 = SHOULDER[0] - 6, SHOULDER[1] + 4
+    b.deco("cape_back", "root", cx0, cy0, 0.0, "poly",
+           [(5, -2), (-8, -4), (-20, 2), (-30, 13), (-36, 24), (-27, 19),
+            (-24, 30), (-15, 21), (-10, 25), (-3, 12), (5, 8)],
+           _tone(cloth_d, 0.92))
+    b.deco("cape_fold", "root", cx0 - 9, cy0 + 8, 0.0, "poly",
+           [(-1, -2), (-10, 2), (-18, 10), (-12, 11), (-4, 5)], _tone(cloth_d, 1.16))
     # --- far arm + shield, behind the body ---
     b.link("arm_f", "root", (SHOULDER[0] - 4, SHOULDER[1]), 0.98, 19,
            *STEEL_ARM_W, steel_d)
@@ -502,71 +602,132 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
     b.link("torso", "root", HIP, -1.5708, 30, 14, 18, cloth)
     b.deco("tabard", "torso", HIP[0], HIP[1], 1.5708, "poly",
            [(-7, -1), (7, -1), (8, 17), (-8, 17)], cloth_d)
-    b.deco("belt", "torso", HIP[0], HIP[1] - 2, 1.5708, "poly",
-           [(-10, -2), (10, -2), (10, 3), (-10, 3)], (82, 64, 44))
+    b.deco("belt", "torso", HIP[0], HIP[1] - 3, 1.5708, "poly",
+           [(-10, -2), (10, -2), (10, 2), (-10, 2)], (70, 52, 36))
+    b.deco("buckle", "torso", HIP[0] + 1, HIP[1] - 3, 1.5708, "poly",
+           [(-3, -2.5), (3, -2.5), (3, 2.5), (-3, 2.5)], GOLD)
+    # Fauld and hanging tassets protecting the thighs
+    b.deco("fauld", "torso", HIP[0], HIP[1] - 1, 1.5708, "poly",
+           [(-9, -2), (9, -2), (9, 3), (-9, 3)], steel_d)
+    b.deco("tasset_n", "torso", HIP[0] + 2, HIP[1] + 2, 1.5708, "poly",
+           [(-4, 0), (5, 0), (4, 8), (-4, 8)], steel)
+    b.deco("tasset_rivet", "torso", HIP[0] + 2, HIP[1] + 4, 1.5708, "circle", [], GOLD, 1.4)
     sx, sy = b.on("torso")
+    # Gleaming steel cuirass with central tapul ridge and highlight
+    b.deco("cuirass", "torso", sx, sy + 6, 0.0, "poly",
+           [(-9, -6), (9, -6), (8, 9), (-8, 9)], steel)
+    b.deco("cuirass_ridge", "torso", sx + 1, sy + 6, 0.0, "poly",
+           [(-1, -6), (2, -6), (2, 9), (-1, 9)], _tone(steel, 1.30))
+    b.deco("cuirass_glint", "torso", sx + 3, sy + 4, 0.0, "poly",
+           [(-2, -3), (3, -3), (2, 3), (-2, 2)], _tone(steel, 1.45))
     b.deco("gorget", "torso", sx, sy - 4, 0.0, "circle", [], steel_d, 5.5)
     b.deco("neck", "torso", sx, sy - 10, 0.0, "circle", [], steel_d, 4.0)
-    # a helm is roughly as wide as it is tall: big enough to read as a head
-    b.link("head", "neck", (sx + 1, sy - 11), -1.28, 17, 18, 14, steel)
+    # Helm: Bascinet/Sallet with beaked snout and flared occipital tail
+    b.link("head", "neck", (sx + 1, sy - 11), -1.28, 18, 19, 15, steel)
     hx, hy = b.on("head")
-    # the helm must read as a HEAD, so the face stays light: a short eye slit
-    # at the FRONT and a small breath slit. A slit as long as the helm, or a
-    # big dark visor, turns the head into a black box.
-    b.deco("visor", "head", hx + 1, hy + 8, 0.0, "poly",
-           [(-7, -2), (8, -2), (8, 1), (-7, 1)], (18, 20, 28))
-    b.deco("breathe", "head", hx + 2, hy + 14, 0.0, "poly",
-           [(-2, -2), (2, -2), (3, 4), (-2, 4)], (26, 28, 36))
-    b.deco("brow", "head", hx, hy + 3, 0.0, "poly",
-           [(-6, 0), (7, -2), (9, 1), (-6, 3)], _tone(steel, 1.20))
+    b.deco("helm_brow", "head", hx - 1, hy + 4, 0.0, "poly",
+           [(-8, -2), (9, -3), (10, 0), (-8, 1)], _tone(steel, 1.28))
+    # Slanted, sinister ocular slit
+    b.deco("visor", "head", hx + 1, hy + 7, 0.0, "poly",
+           [(-6, -1), (9, -2), (9, 1), (-6, 1.5)], (16, 18, 26))
+    # Beaked snout prow (central deflective keel of visor)
+    b.deco("visor_prow", "head", hx + 6, hy + 9, 0.0, "poly",
+           [(0, -3), (6, 0), (1, 5), (-4, 2)], _tone(steel, 1.18))
+    b.deco("visor_prow_sh", "head", hx + 6, hy + 11, 0.0, "poly",
+           [(1, 3), (6, -2), (0, -2)], _tone(steel_d, 0.92))
+    if kettle:
+        # kettle hat: a flat brim and a dark band, so a foot guard's head reads
+        # as a different helm from the knight's sallet before any colour is seen
+        b.deco("kettle_brim", "head", hx + 1, hy - 1, 0.0, "poly",
+               [(-11, -4), (12, -4), (13, -1), (-11, -1)], _tone(steel_d, 0.9))
+        b.deco("kettle_band", "head", hx - 2, hy - 3, 0.0, "poly",
+               [(-7, -1), (8, -1), (8, 1), (-7, 1)], (40, 38, 46))
+    # Flared neck guard protecting nape
+    b.deco("helm_tail", "head", hx - 8, hy + 6, 0.0, "poly",
+           [(-2, -1), (-6, 6), (-3, 8), (2, 3)], _tone(steel, 1.08))
+    # Ventilation rosettes
+    b.deco("breathe", "head", hx + 4, hy + 13, 0.0, "poly",
+           [(-1, -1), (2, -1), (2, 1), (-1, 1)], (22, 24, 32))
+    b.deco("breathe2", "head", hx + 7, hy + 12, 0.0, "poly",
+           [(-1, -1), (1, -1), (1, 1), (-1, 1)], (22, 24, 32))
     if crest:
-        b.deco("crest", "head", hx - 4, hy - 1, 0.0, "poly",
-               [(-3, 2), (2, -8), (12, -11), (5, -12), (-5, -5)], crest)
+        # Grand heraldic winged crest
+        b.deco("crest", "head", hx - 4, hy - 2, 0.0, "poly",
+               [(-3, 2), (4, -8), (14, -18), (17, -23), (10, -19), (2, -10), (-5, -4)], crest)
+        b.deco("crest_hi", "head", hx - 2, hy - 4, 0.0, "poly",
+               [(-1, 0), (5, -7), (12, -15), (14, -20), (8, -16), (2, -9), (-2, -3)], _tone(crest, 1.25))
     if plume:
-        # the plume is the knight's landmark: in silhouette it must break the
-        # head shape, otherwise a rider is just a bump on the horse's back.
-        b.deco("plume", "head", hx - 5, hy - 1, 0.0, "poly",
-               [(0, 2), (11, -5), (25, -12), (31, -24), (19, -20),
-                (7, -10), (-4, -1)], CRIMSON)
+        # Multi-tiered flowing plumage
+        b.deco("plume", "head", hx - 4, hy - 2, 0.0, "poly",
+               [(0, 3), (12, -4), (27, -13), (33, -27), (20, -22), (8, -11), (-5, 0)], CRIMSON_D)
+        b.deco("plume_mid", "head", hx - 3, hy - 4, 0.0, "poly",
+               [(2, 1), (12, -6), (24, -15), (29, -25), (19, -20), (9, -10), (-2, -1)], CRIMSON)
+        b.deco("plume_hi", "head", hx - 1, hy - 6, 0.0, "poly",
+               [(3, -1), (11, -8), (21, -16), (25, -23), (16, -19), (8, -10), (0, -2)], (244, 95, 95))
+        b.deco("plume_socket", "head", hx - 5, hy - 1, 0.0, "poly",
+               [(-2, 0), (2, -4), (5, -1), (0, 2)], GOLD)
     # --- near leg + near arm, in front ---
     b.link("thigh", "root", HIP, 1.52, 25, 14, 11, cloth_d)
     b.limb("shin", "thigh", 1.74, 23, 11, 7, steel_d)
     b.limb("foot", "shin", 0.10, 11, 9, 5, (58, 46, 36))
+    # Sabaton armored shoe and spur
+    fx_, fy_ = b.on("shin")
+    b.deco("sabaton", "shin", fx_ + 3, fy_ + 7, 0.0, "poly",
+           [(-3, -2), (7, -1), (11, 2), (-2, 2)], steel_d)
+    b.deco("spur", "shin", fx_ - 4, fy_ + 8, 0.0, "poly",
+           [(-3, -1), (0, -2), (0, 2), (-3, 1)], GOLD)
     b.link("arm_n", "root", (SHOULDER[0] + 3, SHOULDER[1]), 0.90, 19,
            *STEEL_ARM_W, steel)
     b.limb("fa_n", "arm_n", 1.00, 18, 8, 7, steel)
-    # pauldrons, drawn last so they sit over the shoulders: without them the
-    # arms leave the body at a bare joint and the figure looks like a stick.
+    # Layered fluted pauldrons over shoulders
     b.deco("pauldron_n", "torso", SHOULDER[0] + 3, SHOULDER[1] + 2, 0.0,
-           "circle", [], steel, 7.0)
+           "poly", [(-6, -6), (6, -6), (8, 4), (0, 8), (-7, 4)], steel)
+    b.deco("pauldron_rim", "torso", SHOULDER[0] + 3, SHOULDER[1] + 1, 0.0,
+           "poly", [(-5, -5), (5, -5), (6, -2), (-5, -2)], _tone(steel, 1.25))
     b.deco("pauldron_f", "torso", SHOULDER[0] - 6, SHOULDER[1] + 2, 0.0,
-           "circle", [], steel_d, 6.5)
+           "poly", [(-5, -5), (5, -5), (6, 3), (0, 7), (-6, 3)], steel_d)
+    # Armored couter on the elbow
+    ex_, ey_ = b.on("arm_n")
+    b.deco("couter", "arm_n", ex_ + 1, ey_, 0.0, "poly",
+           [(-4, -4), (4, -4), (6, 2), (-2, 5)], _tone(steel, 1.15))
     hx, hy = b.on("fa_n")
     if lance:
-        # the shaft is a child of the forearm, so it inherits the whole arm's
-        # angle; COUCH_* in rider_pose flattens it back to horizontal
         b.deco("lance", "fa_n", hx, hy, 0.02, "poly",
                [(-28, -2.4), (74, -2.4), (74, 2.4), (-28, 2.4)], WOOD)
-        b.deco("grip", "lance", hx + 12, hy, 0.02, "poly",
-               [(-2, -7), (8, -7), (8, 7), (-2, 7)], (150, 156, 168))
+        b.deco("lance_stripes", "fa_n", hx + 24, hy, 0.02, "poly",
+               [(0, -2.4), (32, -2.4), (32, 2.4), (0, 2.4)], (210, 165, 75))
+        b.deco("vamplate", "fa_n", hx + 12, hy, 0.02, "poly",
+               [(-4, -9), (5, -9), (7, 9), (-2, 9)], steel)
+        b.deco("vamplate_rim", "fa_n", hx + 14, hy, 0.02, "poly",
+               [(0, -9), (3, -9), (3, 9), (0, 9)], GOLD)
         b.deco("nave", "lance", hx + 74, hy, 0.02, "poly",
-               [(0, -4.4), (18, 0), (0, 4.4)], (206, 212, 224))
+               [(0, -4.8), (20, 0), (0, 4.8)], (225, 230, 240))
+        b.deco("nave_edge", "lance", hx + 74, hy, 0.02, "poly",
+               [(0, -4.8), (20, 0), (6, 0)], (255, 255, 255))
     elif weapon == "sword":
         b.deco("pommel", "fa_n", hx - 5, hy, 0.26, "circle", [],
-               GOLD, 3.2)
+               GOLD, 3.6)
+        b.deco("pommel_gem", "fa_n", hx - 5, hy, 0.26, "circle", [],
+               (180, 28, 34), 1.8)
         b.deco("hilt", "fa_n", hx, hy, 0.26, "poly",
-               [(-3, -2), (3, -2), (3, 2), (-3, 2)], (90, 70, 48))
+               [(-3, -2), (3, -2), (3, 2), (-3, 2)], (85, 62, 42))
+        b.deco("grip_wire", "fa_n", hx, hy, 0.26, "poly",
+               [(-1, -2), (1, -2), (1, 2), (-1, 2)], GOLD)
         b.deco("guard", "fa_n", hx + 1, hy, 0.26, "poly",
-               [(-2, -10), (3, -10), (3, 10), (-2, 10)],
+               [(-2, -11), (3, -11), (3, 11), (-2, 11)],
                GOLD if (plume or crest) else STEEL)
         b.deco("blade", "fa_n", hx, hy, 0.26, "poly",
-               [(2, -3.2), (40, -3.2), (48, 0), (40, 3.2), (2, 3.2)], (236, 240, 248))
+               [(2, -3.2), (42, -2.6), (50, 0), (42, 2.6), (2, 3.2)], (240, 244, 252))
         b.deco("fuller", "fa_n", hx + 2, hy, 0.26, "poly",
-               [(0, -0.8), (30, -0.8), (30, 0.8), (0, 0.8)], (172, 180, 194))
+               [(0, -0.9), (32, -0.7), (32, 0.7), (0, 0.9)], (168, 176, 190))
+        b.deco("blade_edge", "fa_n", hx, hy, 0.26, "poly",
+               [(2, -3.2), (42, -2.6), (50, 0), (42, -1.2), (2, -1.8)], (255, 255, 255))
         b.deco("ricasso", "fa_n", hx + 1, hy, 0.26, "poly",
-               [(0, -3), (5, -3), (5, 3), (0, 3)], (188, 194, 204))
+               [(0, -3), (5, -3), (5, 3), (0, 3)], (195, 200, 210))
         b.deco("hand", "fa_n", hx, hy, 0.26, "circle", [],
                _tone(steel_d, 0.85), 5.0)
+        b.deco("cuff", "fa_n", hx - 3, hy, 0.26, "poly",
+               [(-2, -4), (2, -4), (2, 4), (-2, 4)], steel)
     elif weapon == "spear":
         b.deco("shaft", "fa_n", hx, hy, 0.30, "poly",
                [(-18, -1.7), (56, -1.7), (56, 1.7), (-18, 1.7)], WOOD)
@@ -580,9 +741,9 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
 
 def make_human_rig(scale=1.0, steel=STEEL, steel_d=STEEL_D, cloth=CRIMSON,
                    cloth_d=CRIMSON_D, weapon="sword", plume=True, shield=True,
-                   crest=None, lance=False):
+                   crest=None, lance=False, kettle=False):
     b = _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
-               crest, lance)
+               crest, lance, kettle)
     # the lance needs canvas room to the right; the plume room above
     reach = 150 if lance else 110
     return b.build(int(max(52, reach) * scale), int(205 * scale))
@@ -608,8 +769,8 @@ _FOOT = {
     "torso": 0.06, "neck": 0.0, "head": 0.0,
     "arm_f": 0.06, "fa_f": -0.18,
     "arm_n": 0.08, "fa_n": -0.16,
-    "thigh": 0.0, "shin": -0.30, "foot": 0.0,
-    "thigh_f": 0.0, "shin_f": -0.26, "foot_f": 0.0,
+    "thigh": 0.0, "shin": 0.0, "foot": 0.0,
+    "thigh_f": 0.0, "shin_f": 0.0, "foot_f": 0.0,
     "plume": 0.0, "crest": 0.0,
 }
 LANCE_REST = 0.02
@@ -631,9 +792,17 @@ def horse_pose(speed, phase, air=0.0, panic=0.0):
         u = p + TAU * off
         swing = math.sin(u)
         gather = max(0.0, math.cos(u - 0.55))
-        a[hip] = motion * (-0.72 * swing + (0.13 if hind else -0.10))
-        a[knee] = motion * ((-0.80 if hind else 0.95) * gather)
-        a[hoof] = motion * (0.20 * swing - 0.28 * gather)
+        stance = max(0.0, -math.cos(u - 0.55))
+        if hind:
+            # Hind leg: drive backward, tuck forward under belly with articulated hock and hoof
+            a[hip] = motion * (-0.74 * swing + 0.14)
+            a[knee] = motion * (-0.88 * gather + 0.12 * stance)
+            a[hoof] = motion * (0.22 * swing - 0.32 * gather + 0.10 * stance)
+        else:
+            # Foreleg: reach forward, fold carpus cleanly during recovery, cushion impact on stance
+            a[hip] = motion * (-0.72 * swing - 0.10)
+            a[knee] = motion * (1.02 * gather + 0.08 * stance)
+            a[hoof] = motion * (0.22 * swing - 0.30 * gather - 0.08 * stance)
         if air:
             a[hip] += air * (0.45 if hind else -0.5)
             a[knee] += air * (-0.35 if hind else 0.55)
@@ -650,7 +819,7 @@ def horse_pose(speed, phase, air=0.0, panic=0.0):
     return a, (-5.5 * air if air else bob)
 
 
-def rider_pose(phase, riding=1.0, moving=0.0, air=0.0, attack=0.0, reach=0.0):
+def rider_pose(phase, riding=1.0, moving=0.0, air=0.0, attack=0.0, reach=0.0, combo=0):
     """Blend the mounted pose (riding=1) into an on-foot run/strike (riding=0).
 
     -> (angles, hip_lift). hip_lift raises the whole rider, which is how the
@@ -659,17 +828,18 @@ def rider_pose(phase, riding=1.0, moving=0.0, air=0.0, attack=0.0, reach=0.0):
     p = TAU * phase
     riding = max(0.0, min(1.0, riding))
     a = {name: lerp(_FOOT[name], _RIDE[name], riding) for name in _RIDE}
-    sw, sw2 = math.sin(p) * moving, math.sin(p + math.pi) * moving
+    sw, cw = math.sin(p) * moving, math.cos(p) * moving
+    sw2, cw2 = math.sin(p + math.pi) * moving, math.cos(p + math.pi) * moving
 
-    # Blend the motion as well as the rest stance. A threshold here made the
-    # feet jump midway through mount/dismount despite the interpolated seat.
+    # Blend the motion as well as the rest stance. Articulated knee flexion,
+    # plantarflexion push-off and dorsiflexion recovery.
     foot_motion = {
-        "thigh": 0.60 * sw,
-        "shin": -1.10 * max(0.0, -sw2) - 0.20 * abs(sw),
-        "foot": 0.26 * sw,
-        "thigh_f": 0.55 * sw2,
-        "shin_f": -1.05 * max(0.0, -sw) - 0.18 * abs(sw2),
-        "foot_f": 0.24 * sw2,
+        "thigh": -0.55 * sw,
+        "shin": (0.85 * max(0.0, sw) + 0.25 * max(0.0, -cw) * max(0.0, -sw)) * moving,
+        "foot": (0.30 * max(0.0, -sw) - 0.25 * max(0.0, sw)) * moving,
+        "thigh_f": -0.55 * sw2,
+        "shin_f": (0.85 * max(0.0, sw2) + 0.25 * max(0.0, -cw2) * max(0.0, -sw2)) * moving,
+        "foot_f": (0.30 * max(0.0, -sw2) - 0.25 * max(0.0, sw2)) * moving,
         "torso": 0.05 * moving - 0.12 * air,
         "arm_f": 0.42 * sw2,
         "arm_n": -0.38 * sw,
@@ -685,7 +855,7 @@ def rider_pose(phase, riding=1.0, moving=0.0, air=0.0, attack=0.0, reach=0.0):
     for name in foot_motion.keys() | ride_motion.keys():
         a[name] += lerp(foot_motion.get(name, 0.0),
                         ride_motion.get(name, 0.0), riding)
-    foot_lift = -abs(math.sin(p)) * 1.9 * moving - 5.0 * air
+    foot_lift = -0.5 * (1.0 - math.cos(p * 2)) * 2.2 * moving - 5.0 * air
     ride_lift = -3.0 + 0.9 * math.sin(p * 2) * moving
     lift = lerp(foot_lift, ride_lift, riding)
 
@@ -701,27 +871,67 @@ def rider_pose(phase, riding=1.0, moving=0.0, air=0.0, attack=0.0, reach=0.0):
         k = ease(1.0 - attack)  # 0 at the start of the swing, 1 when recovered
         base_arm = a["arm_n"]
         base_fa = a["fa_n"]
-        if k < 0.28:
-            u = ease(k / 0.28)
-            # Windup: sword raised up and back ready to strike
-            a["arm_n"] = lerp(base_arm, -1.35, u)
-            a["fa_n"] = lerp(base_fa, 0.40, u)
-            a["torso"] += lerp(0.0, -0.10, u)
-            a["head"] += lerp(0.0, -0.06, u)
-        elif k < 0.68:
-            u = ease((k - 0.28) / 0.40)
-            # Forward horizontal slash through enemy chest/torso
-            a["arm_n"] = lerp(-1.35, -0.28, u)
-            a["fa_n"] = lerp(0.40, 0.15, u)
-            a["torso"] += lerp(-0.10, 0.20, u) * (1.0 - riding * 0.35)
-            a["head"] += lerp(-0.06, 0.10, u)
+        c_mode = combo % 3
+        if c_mode == 0:
+            # Combo 1: Horizontal slash through enemy chest/torso
+            if k < 0.28:
+                u = ease(k / 0.28)
+                a["arm_n"] = lerp(base_arm, -1.35, u)
+                a["fa_n"] = lerp(base_fa, 0.40, u)
+                a["torso"] += lerp(0.0, -0.10, u)
+                a["head"] += lerp(0.0, -0.06, u)
+            elif k < 0.68:
+                u = ease((k - 0.28) / 0.40)
+                a["arm_n"] = lerp(-1.35, -0.28, u)
+                a["fa_n"] = lerp(0.40, 0.15, u)
+                a["torso"] += lerp(-0.10, 0.20, u) * (1.0 - riding * 0.35)
+                a["head"] += lerp(-0.06, 0.10, u)
+            else:
+                u = ease((k - 0.68) / 0.32)
+                a["arm_n"] = lerp(-0.28, base_arm, u)
+                a["fa_n"] = lerp(0.15, base_fa, u)
+                a["torso"] += lerp(0.20, 0.0, u) * (1.0 - riding * 0.35)
+                a["head"] += lerp(0.10, 0.0, u)
+        elif c_mode == 1:
+            # Combo 2: Rising diagonal slash (sweeps upward across guard)
+            if k < 0.28:
+                u = ease(k / 0.28)
+                a["arm_n"] = lerp(base_arm, 0.42, u)
+                a["fa_n"] = lerp(base_fa, 0.55, u)
+                a["torso"] += lerp(0.0, -0.08, u)
+                a["head"] += lerp(0.0, -0.04, u)
+            elif k < 0.68:
+                u = ease((k - 0.28) / 0.40)
+                a["arm_n"] = lerp(0.42, -1.55, u)
+                a["fa_n"] = lerp(0.55, -0.25, u)
+                a["torso"] += lerp(-0.08, 0.16, u) * (1.0 - riding * 0.35)
+                a["head"] += lerp(-0.04, 0.08, u)
+            else:
+                u = ease((k - 0.68) / 0.32)
+                a["arm_n"] = lerp(-1.55, base_arm, u)
+                a["fa_n"] = lerp(-0.25, base_fa, u)
+                a["torso"] += lerp(0.16, 0.0, u) * (1.0 - riding * 0.35)
+                a["head"] += lerp(0.08, 0.0, u)
         else:
-            u = ease((k - 0.68) / 0.32)
-            # Recovery: smoothly return to ready stance
-            a["arm_n"] = lerp(-0.28, base_arm, u)
-            a["fa_n"] = lerp(0.15, base_fa, u)
-            a["torso"] += lerp(0.20, 0.0, u) * (1.0 - riding * 0.35)
-            a["head"] += lerp(0.10, 0.0, u)
+            # Combo 3: Heavy finisher thrust / forward lunge
+            if k < 0.28:
+                u = ease(k / 0.28)
+                a["arm_n"] = lerp(base_arm, -0.65, u)
+                a["fa_n"] = lerp(base_fa, 1.38, u)
+                a["torso"] += lerp(0.0, -0.18, u)
+                a["head"] += lerp(0.0, -0.08, u)
+            elif k < 0.68:
+                u = ease((k - 0.28) / 0.40)
+                a["arm_n"] = lerp(-0.65, -0.05, u)
+                a["fa_n"] = lerp(1.38, 0.02, u)
+                a["torso"] += lerp(-0.18, 0.32, u) * (1.0 - riding * 0.35)
+                a["head"] += lerp(-0.08, 0.12, u)
+            else:
+                u = ease((k - 0.68) / 0.32)
+                a["arm_n"] = lerp(-0.05, base_arm, u)
+                a["fa_n"] = lerp(0.02, base_fa, u)
+                a["torso"] += lerp(0.32, 0.0, u) * (1.0 - riding * 0.35)
+                a["head"] += lerp(0.12, 0.0, u)
     return a, lift
 
 
