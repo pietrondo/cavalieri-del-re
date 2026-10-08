@@ -208,6 +208,17 @@ class Guard(Actor):
                 ang, lift = sprites.rider_pose(self.phase, riding=0.0, moving=0.0,
                                               attack=0.25 * u)
             return ang, lift
+        if self.stun > 0:
+            # recoil: the body snaps back from the blow and comes forward again
+            # as the stun wears off, instead of freezing in the idle stance
+            u = min(1.0, self.stun / 0.45)
+            ang, lift = sprites.rider_pose(self.phase,
+                                           riding=1.0 if self.on_horse else 0.0,
+                                           moving=0.0)
+            ang["torso"] = ang.get("torso", 0.0) - 0.34 * u
+            ang["head"] = ang.get("head", 0.0) - 0.30 * u
+            ang["arm_f"] = ang.get("arm_f", 0.0) - 0.25 * u
+            return ang, lift
         return sprites.rider_pose(self.phase,
                                   riding=1.0 if self.on_horse else 0.0,
                                   moving=1.0, air=0.0)
@@ -471,6 +482,10 @@ class Knight(Actor):
             attack=0.0 if self.gallop else max(0.0, self.attack),
             reach=1.0 if self.gallop else 0.0,
             combo=self.combo_step)
+        rec = min(1.0, self.knock / 0.20)     # knockback from a hit
+        if rec > 0:
+            ang["torso"] = ang.get("torso", 0.0) - 0.22 * rec
+            ang["head"] = ang.get("head", 0.0) - 0.16 * rec
         return ang, lift - SEAT * riding
 
     def draw(self, surf, cam_x):

@@ -61,6 +61,26 @@ class HitStopTests(unittest.TestCase):
         self.assertGreater(fx.hitstop, 0.0)
 
 
+class HitReactionTests(unittest.TestCase):
+    """Regression: a stunned guard froze in its idle stance and a struck knight
+    showed no reaction at all."""
+
+    def test_stunned_guard_recoils_then_recovers(self):
+        g = game.Guard(100.0)
+        g.stun = 0.45
+        hit = g.pose()[0]["torso"]
+        g.stun = 0.0
+        idle = g.pose()[0]["torso"]
+        self.assertLess(hit, idle)
+
+    def test_knight_leans_back_on_knockback(self):
+        k = game.Knight(100.0)
+        k.knock = 0.0
+        rest = k.pose()[0]["torso"]
+        k.knock = 0.20
+        self.assertLess(k.pose()[0]["torso"], rest)
+
+
 if __name__ == "__main__":
     unittest.main()
 
