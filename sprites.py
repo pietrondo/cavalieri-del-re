@@ -705,27 +705,31 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
         b.deco("nave_edge", "lance", hx + 74, hy, 0.02, "poly",
                [(0, -4.8), (20, 0), (6, 0)], (255, 255, 255))
     elif weapon == "sword":
-        b.deco("pommel", "fa_n", hx - 5, hy, 0.26, "circle", [],
-               GOLD, 3.6)
-        b.deco("pommel_gem", "fa_n", hx - 5, hy, 0.26, "circle", [],
-               (180, 28, 34), 1.8)
-        b.deco("hilt", "fa_n", hx, hy, 0.26, "poly",
-               [(-3, -2), (3, -2), (3, 2), (-3, 2)], (85, 62, 42))
-        b.deco("grip_wire", "fa_n", hx, hy, 0.26, "poly",
-               [(-1, -2), (1, -2), (1, 2), (-1, 2)], GOLD)
-        b.deco("guard", "fa_n", hx + 1, hy, 0.26, "poly",
-               [(-2, -11), (3, -11), (3, 11), (-2, 11)],
-               GOLD if (plume or crest) else STEEL)
-        b.deco("blade", "fa_n", hx, hy, 0.26, "poly",
-               [(2, -3.2), (42, -2.6), (50, 0), (42, 2.6), (2, 3.2)], (240, 244, 252))
-        b.deco("fuller", "fa_n", hx + 2, hy, 0.26, "poly",
-               [(0, -0.9), (32, -0.7), (32, 0.7), (0, 0.9)], (168, 176, 190))
-        b.deco("blade_edge", "fa_n", hx, hy, 0.26, "poly",
-               [(2, -3.2), (42, -2.6), (50, 0), (42, -1.2), (2, -1.8)], (255, 255, 255))
-        b.deco("ricasso", "fa_n", hx + 1, hy, 0.26, "poly",
-               [(0, -3), (5, -3), (5, 3), (0, 3)], (195, 200, 210))
+        # The whole sword hangs off `hand`, the wrist pivot at the forearm's
+        # tip: rotating `hand` swings the blade around the wrist, so a cut can
+        # lead with the edge instead of dragging the blade rigid on the arm.
+        # `hand` is declared first so FK resolves it before its children.
         b.deco("hand", "fa_n", hx, hy, 0.26, "circle", [],
                _tone(steel_d, 0.85), 5.0)
+        b.deco("pommel", "hand", hx - 5, hy, 0.26, "circle", [],
+               GOLD, 3.6)
+        b.deco("pommel_gem", "hand", hx - 5, hy, 0.26, "circle", [],
+               (180, 28, 34), 1.8)
+        b.deco("hilt", "hand", hx, hy, 0.26, "poly",
+               [(-3, -2), (3, -2), (3, 2), (-3, 2)], (85, 62, 42))
+        b.deco("grip_wire", "hand", hx, hy, 0.26, "poly",
+               [(-1, -2), (1, -2), (1, 2), (-1, 2)], GOLD)
+        b.deco("guard", "hand", hx + 1, hy, 0.26, "poly",
+               [(-2, -11), (3, -11), (3, 11), (-2, 11)],
+               GOLD if (plume or crest) else STEEL)
+        b.deco("blade", "hand", hx, hy, 0.26, "poly",
+               [(2, -3.2), (42, -2.6), (50, 0), (42, 2.6), (2, 3.2)], (240, 244, 252))
+        b.deco("fuller", "hand", hx + 2, hy, 0.26, "poly",
+               [(0, -0.9), (32, -0.7), (32, 0.7), (0, 0.9)], (168, 176, 190))
+        b.deco("blade_edge", "hand", hx, hy, 0.26, "poly",
+               [(2, -3.2), (42, -2.6), (50, 0), (42, -1.2), (2, -1.8)], (255, 255, 255))
+        b.deco("ricasso", "hand", hx + 1, hy, 0.26, "poly",
+               [(0, -3), (5, -3), (5, 3), (0, 3)], (195, 200, 210))
         b.deco("cuff", "fa_n", hx - 3, hy, 0.26, "poly",
                [(-2, -4), (2, -4), (2, 4), (-2, 4)], steel)
     elif weapon == "spear":
@@ -744,8 +748,10 @@ def make_human_rig(scale=1.0, steel=STEEL, steel_d=STEEL_D, cloth=CRIMSON,
                    crest=None, lance=False, kettle=False):
     b = _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
                crest, lance, kettle)
-    # the lance needs canvas room to the right; the plume room above
-    reach = 150 if lance else 110
+    # the lance needs canvas room to the right; the plume room above. The
+    # sword/spear need a little more than they used to, now that the cut swings
+    # the weapon further forward at full extension.
+    reach = 150 if lance else 116
     return b.build(int(max(52, reach) * scale), int(205 * scale))
 
 
@@ -823,6 +829,50 @@ def horse_pose(speed, phase, air=0.0, panic=0.0):
     return a, (-5.5 * air if air else bob)
 
 
+# Sword cuts, one keyframe table per combo. Values are ADDITIVE offsets per
+# bone, keyed by swing progress k = 1 - attack: 0 is the first frame of the
+# cut, 1 the moment it has recovered. Every table starts and ends neutral,
+# so each cut grows out of, and settles back into, the walk/ride base pose.
+# `hand` is the wrist pivot (see _human): it swings the whole sword so the
+# blade leads the cut instead of staying rigid on the forearm.
+SWORD_CUTS = {
+    0: (  # fendente discendente: guardia alta, taglio diagonale in avanti
+        (0.00, {}),
+        (0.30, {"arm_n": -1.10, "fa_n": 0.55, "hand": -0.35,
+                "arm_f": 0.30, "fa_f": -0.15, "torso": -0.14, "head": -0.10}),
+        (0.66, {"arm_n": 0.28, "fa_n": -0.65, "hand": 0.35,
+                "arm_f": -0.40, "fa_f": 0.28, "torso": 0.30, "head": 0.14}),
+        (1.00, {}),
+    ),
+    1: (  # fendente ascendente: carica in basso, risalita larga
+        (0.00, {}),
+        (0.30, {"arm_n": 0.32, "fa_n": -0.20, "hand": 0.25,
+                "arm_f": 0.25, "fa_f": -0.10, "torso": 0.16, "head": 0.06}),
+        (0.66, {"arm_n": -0.72, "fa_n": -0.15, "hand": -0.20,
+                "arm_f": -0.35, "fa_f": 0.25, "torso": -0.18, "head": -0.10}),
+        (1.00, {}),
+    ),
+    2: (  # affondo finisher: camera al fianco, stoccata in avanti
+        (0.00, {}),
+        (0.30, {"arm_n": -0.25, "fa_n": 0.50, "hand": -0.15,
+                "arm_f": 0.30, "fa_f": -0.20, "torso": -0.16, "head": -0.10}),
+        (0.66, {"arm_n": -0.60, "fa_n": -0.95, "hand": 0.85,
+                "arm_f": -0.50, "fa_f": 0.30, "torso": 0.34, "head": 0.10}),
+        (1.00, {}),
+    ),
+}
+
+
+def _cut_offsets(k, keys):
+    """Piecewise-eased additive bone offsets at swing progress k in [0, 1]."""
+    for (k0, a0), (k1, a1) in zip(keys, keys[1:]):
+        if k <= k1:
+            u = ease((k - k0) / max(1e-6, k1 - k0))
+            return {n: lerp(a0.get(n, 0.0), a1.get(n, 0.0), u)
+                    for n in a0.keys() | a1.keys()}
+    return {}
+
+
 def rider_pose(phase, riding=1.0, moving=0.0, air=0.0, attack=0.0, reach=0.0, combo=0):
     """Blend the mounted pose (riding=1) into an on-foot run/strike (riding=0).
 
@@ -872,70 +922,19 @@ def rider_pose(phase, riding=1.0, moving=0.0, air=0.0, attack=0.0, reach=0.0, co
         a["fa_f"] = lerp(a["fa_f"], 0.28, reach)
         a["torso"] += -0.06 * reach
     elif attack > 0.0:
-        k = ease(1.0 - attack)  # 0 at the start of the swing, 1 when recovered
-        base_arm = a["arm_n"]
-        base_fa = a["fa_n"]
-        c_mode = combo % 3
-        if c_mode == 0:
-            # Combo 1: Horizontal slash through enemy chest/torso
-            if k < 0.28:
-                u = ease(k / 0.28)
-                a["arm_n"] = lerp(base_arm, -1.35, u)
-                a["fa_n"] = lerp(base_fa, 0.40, u)
-                a["torso"] += lerp(0.0, -0.10, u)
-                a["head"] += lerp(0.0, -0.06, u)
-            elif k < 0.68:
-                u = ease((k - 0.28) / 0.40)
-                a["arm_n"] = lerp(-1.35, -0.28, u)
-                a["fa_n"] = lerp(0.40, 0.15, u)
-                a["torso"] += lerp(-0.10, 0.20, u) * (1.0 - riding * 0.35)
-                a["head"] += lerp(-0.06, 0.10, u)
-            else:
-                u = ease((k - 0.68) / 0.32)
-                a["arm_n"] = lerp(-0.28, base_arm, u)
-                a["fa_n"] = lerp(0.15, base_fa, u)
-                a["torso"] += lerp(0.20, 0.0, u) * (1.0 - riding * 0.35)
-                a["head"] += lerp(0.10, 0.0, u)
-        elif c_mode == 1:
-            # Combo 2: Rising diagonal slash (sweeps upward across guard)
-            if k < 0.28:
-                u = ease(k / 0.28)
-                a["arm_n"] = lerp(base_arm, 0.42, u)
-                a["fa_n"] = lerp(base_fa, 0.55, u)
-                a["torso"] += lerp(0.0, -0.08, u)
-                a["head"] += lerp(0.0, -0.04, u)
-            elif k < 0.68:
-                u = ease((k - 0.28) / 0.40)
-                a["arm_n"] = lerp(0.42, -1.55, u)
-                a["fa_n"] = lerp(0.55, -0.25, u)
-                a["torso"] += lerp(-0.08, 0.16, u) * (1.0 - riding * 0.35)
-                a["head"] += lerp(-0.04, 0.08, u)
-            else:
-                u = ease((k - 0.68) / 0.32)
-                a["arm_n"] = lerp(-1.55, base_arm, u)
-                a["fa_n"] = lerp(-0.25, base_fa, u)
-                a["torso"] += lerp(0.16, 0.0, u) * (1.0 - riding * 0.35)
-                a["head"] += lerp(0.08, 0.0, u)
-        else:
-            # Combo 3: Heavy finisher thrust / forward lunge
-            if k < 0.28:
-                u = ease(k / 0.28)
-                a["arm_n"] = lerp(base_arm, -0.65, u)
-                a["fa_n"] = lerp(base_fa, 1.38, u)
-                a["torso"] += lerp(0.0, -0.18, u)
-                a["head"] += lerp(0.0, -0.08, u)
-            elif k < 0.68:
-                u = ease((k - 0.28) / 0.40)
-                a["arm_n"] = lerp(-0.65, -0.05, u)
-                a["fa_n"] = lerp(1.38, 0.02, u)
-                a["torso"] += lerp(-0.18, 0.32, u) * (1.0 - riding * 0.35)
-                a["head"] += lerp(-0.08, 0.12, u)
-            else:
-                u = ease((k - 0.68) / 0.32)
-                a["arm_n"] = lerp(-0.05, base_arm, u)
-                a["fa_n"] = lerp(0.02, base_fa, u)
-                a["torso"] += lerp(0.32, 0.0, u) * (1.0 - riding * 0.35)
-                a["head"] += lerp(0.12, 0.0, u)
+        # The cut is a chain of additive offsets that starts and ends neutral,
+        # so it grows out of the walk/ride base and settles back into it. The
+        # footfall's own arm swing is damped out while the blade is in flight,
+        # or the running figure wobbles through the swing.
+        # NB: k is left LINEAR here. _cut_offsets already eases each segment, so
+        # easing k too doubled the peak angular rate and the strike strobed.
+        k = 1.0 - attack  # 0 at the start of the swing, 1 when recovered
+        damp = ease(min(1.0, min(k, 1.0 - k) / 0.12)) * (1.0 - riding)
+        lead = 1.0 - riding * 0.35   # a rider leaning over the saddle leads less
+        for name in ("arm_n", "fa_n", "arm_f"):
+            a[name] = a.get(name, 0.0) - foot_motion.get(name, 0.0) * damp
+        for name, off in _cut_offsets(k, SWORD_CUTS[combo % 3]).items():
+            a[name] = a.get(name, 0.0) + off * (lead if name in ("torso", "head") else 1.0)
     return a, lift
 
 
