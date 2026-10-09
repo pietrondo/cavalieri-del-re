@@ -766,8 +766,9 @@ FORE_DOWN = 1.00
 _RIDE = {
     "torso": 0.05, "neck": -0.12, "head": -0.06,
     "arm_f": -0.30, "fa_f": -0.55,
-    # rider's sword arm: held up and forward, elbow folded so the blade reads
-    # as a ready guard rather than a low carry or a frozen outstretched lunge
+    # mounted sword carried forward at a slight up angle. Do NOT raise this arm
+    # like the on-foot carry: the enemy rider's lance hangs off the same bones,
+    # and a raised arm points the lance up over the shoulder and off the canvas.
     "arm_n": -0.35, "fa_n": -0.22, "hand": 0.00,
     "thigh": -0.35, "shin": 0.55, "foot": 0.22,
     "thigh_f": -0.30, "shin_f": 0.50, "foot_f": 0.20,
@@ -776,7 +777,7 @@ _RIDE = {
 _FOOT = {
     "torso": 0.06, "neck": 0.0, "head": 0.0,
     "arm_f": 0.06, "fa_f": -0.18,
-    "arm_n": 0.08, "fa_n": -0.26, "hand": 0.00,
+    "arm_n": -0.55, "fa_n": -0.30, "hand": 0.00,
     "thigh": 0.0, "shin": 0.0, "foot": 0.0,
     "thigh_f": 0.0, "shin_f": 0.0, "foot_f": 0.0,
     "plume": 0.0, "crest": 0.0,
@@ -834,31 +835,33 @@ def horse_pose(speed, phase, air=0.0, panic=0.0):
 # Sword cuts, one keyframe table per combo. Values are ADDITIVE offsets per
 # bone, keyed by swing progress k = 1 - attack: 0 is the first frame of the
 # cut, 1 the moment it has recovered. Every table starts and ends neutral,
-# so each cut grows out of, and settles back into, the walk/ride base pose.
+# so each cut grows out of, and settles back into, the raised carry pose in
+# _FOOT. arm_n/fa_n already carry the +0.63/+0.14 that compensates that raised
+# base, so the absolute swing is the same as when the base was a low guard.
 # `hand` is the wrist pivot (see _human): it swings the whole sword so the
 # blade leads the cut instead of staying rigid on the forearm.
 SWORD_CUTS = {
     0: (  # fendente discendente: guardia alta, taglio diagonale in avanti
         (0.00, {}),
-        (0.30, {"arm_n": -1.10, "fa_n": 0.55, "hand": -0.35,
+        (0.30, {"arm_n": -0.47, "fa_n": 0.69, "hand": -0.35,
                 "arm_f": 0.30, "fa_f": -0.15, "torso": -0.14, "head": -0.10}),
-        (0.66, {"arm_n": 0.28, "fa_n": -0.65, "hand": 0.35,
+        (0.66, {"arm_n": 0.91, "fa_n": -0.51, "hand": 0.35,
                 "arm_f": -0.40, "fa_f": 0.28, "torso": 0.30, "head": 0.14}),
         (1.00, {}),
     ),
     1: (  # fendente ascendente: carica in basso, risalita larga
         (0.00, {}),
-        (0.30, {"arm_n": 0.32, "fa_n": -0.20, "hand": 0.25,
+        (0.30, {"arm_n": 0.95, "fa_n": -0.06, "hand": 0.25,
                 "arm_f": 0.25, "fa_f": -0.10, "torso": 0.16, "head": 0.06}),
-        (0.66, {"arm_n": -0.72, "fa_n": -0.15, "hand": -0.20,
+        (0.66, {"arm_n": -0.09, "fa_n": -0.01, "hand": -0.20,
                 "arm_f": -0.35, "fa_f": 0.25, "torso": -0.18, "head": -0.10}),
         (1.00, {}),
     ),
     2: (  # affondo finisher: camera al fianco, stoccata in avanti
         (0.00, {}),
-        (0.30, {"arm_n": -0.25, "fa_n": 0.50, "hand": -0.15,
+        (0.30, {"arm_n": 0.38, "fa_n": 0.64, "hand": -0.15,
                 "arm_f": 0.30, "fa_f": -0.20, "torso": -0.16, "head": -0.10}),
-        (0.66, {"arm_n": -0.60, "fa_n": -0.95, "hand": 0.85,
+        (0.66, {"arm_n": 0.03, "fa_n": -0.81, "hand": 0.85,
                 "arm_f": -0.50, "fa_f": 0.30, "torso": 0.34, "head": 0.10}),
         (1.00, {}),
     ),
