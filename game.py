@@ -167,16 +167,23 @@ class Guard(Actor):
             self.horse = Horse(x, coat=sprites.GREY_D, trim=sprites.GOLD)
             self.on_horse = True
         elif kind == "spear":
+            cloth = random.choice(((58, 96, 98), (52, 84, 88), (74, 96, 90)))
             super().__init__(x, sprites.make_human_rig(
-                0.94 * HUMAN_S, sprites.GREY, sprites.GREY_D, (58, 96, 98),
-                (38, 66, 70), weapon="spear", plume=False, shield=False,
-                kettle=True), 3, 2.5)
+                random.uniform(0.90, 0.98) * HUMAN_S, sprites.GREY,
+                sprites.GREY_D, cloth, tuple(c * 2 // 3 for c in cloth),
+                weapon="spear", plume=False, shield=False,
+                kettle=random.random() < 0.5), 3, 2.5)
             self.dmg, self.reach, self.on_horse = 1, 70.0, False
         else:
+            # foot guards are stamped from one rig, so vary scale, cape and helm
+            # or a squad of them reads as one sprite copied three times
+            cloth = random.choice((sprites.OCHRE, (120, 100, 64), (102, 88, 60),
+                                   (128, 112, 78)))
             super().__init__(x, sprites.make_human_rig(
-                0.90 * HUMAN_S, sprites.GREY, sprites.GREY_D, sprites.OCHRE,
-                sprites.OCHRE_D, weapon="sword", plume=False, shield=True,
-                kettle=True), 4, 2.0)
+                random.uniform(0.86, 0.96) * HUMAN_S, sprites.GREY,
+                sprites.GREY_D, cloth, tuple(c * 2 // 3 for c in cloth),
+                weapon="sword", plume=False, shield=True,
+                kettle=random.random() < 0.6), 4, 2.0)
             self.dmg, self.reach, self.on_horse = 1, 62.0, False
         self.kind = kind
         self.cooldown = random.uniform(0.4, 1.4)
@@ -303,6 +310,11 @@ class Guard(Actor):
 class Knight(Actor):
     def __init__(self, x):
         super().__init__(x, sprites.make_human_rig(HUMAN_S), 10, FOOT_SPEED)
+        # a second rig for the couched-lance charge: a sword couched like a
+        # lance was the one thing that never read right on horseback
+        self.rig_lance = sprites.make_human_rig(
+            HUMAN_S, weapon="none", lance=True, shield=False)
+        self.charge = 0.0        # 0 sword, 1 couched lance: blends, not a snap
         self.horse = Horse(x, coat=sprites.CRIMSON_D, trim=sprites.GOLD)
         self.horse.face = 1
         self.state = ST_HORSE
@@ -348,6 +360,14 @@ class Knight(Actor):
         if ax:
             self.face = ax
         self.gallop = bool(shift and self.on_horse and ax and self.state == ST_HORSE)
+        # the lance is brought down (and stowed) over a beat instead of popping.
+        # snap to 0 at the tail: an asymptotic decay never reaches it, and any
+        # residual charge would keep rider_pose in the reach branch and block
+        # the sword attack forever.
+        self.charge += ((1.0 if self.gallop else 0.0) - self.charge) \
+            * min(1.0, dt * 6.0)
+        if self.charge < 0.01:
+            self.charge = 0.0
 
         if self.state in (ST_DEAD, ST_WIN):
             if self.state == ST_DEAD:
@@ -500,7 +520,7 @@ class Knight(Actor):
             moving=gait if self.on_horse else 1.0,
             air=self.air,
             attack=0.0 if self.gallop else max(0.0, self.attack),
-            reach=1.0 if self.gallop else 0.0,
+            reach=self.charge if self.on_horse else 0.0,
             combo=self.combo_step)
         rec = min(1.0, self.knock / 0.20)     # knockback from a hit
         if rec > 0:
@@ -515,9 +535,10 @@ class Knight(Actor):
         if not self.on_horse:
             contact_shadow(surf, self.x - cam_x, self.y, 22 * HUMAN_S)
         ang, lift = self.pose()
-        img, _ = sprites.render_human(self.rig, ang, (0.0, lift),
+        rig = self.rig_lance if self.charge > 0.6 else self.rig
+        img, _ = sprites.render_human(rig, ang, (0.0, lift),
                                       flip=self.face < 0)
-        sprites.blit(surf, img, self.rig, self.x - cam_x, self.y)
+        sprites.blit(surf, img, rig, self.x - cam_x, self.y)
         if self.shield > 0:
             bl = 0.55 + 0.45 * math.sin(pygame.time.get_ticks() * 0.012)
             halo = pygame.Surface((90, 90), pygame.SRCALPHA)
