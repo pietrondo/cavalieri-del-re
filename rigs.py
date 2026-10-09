@@ -5,6 +5,7 @@ guarda verso +x, y punta in giu'. `Builder` incatena le ossa al tip del genitore
 invece di fare aritmetica a mano, cos' una catena non puo' uscire rotta.
 """
 
+import functools
 import math
 
 from bones import TAU, Bone, Rig, _tone
@@ -202,7 +203,13 @@ def _horse(coat=None, trim=None, scale=1.0):
     return b
 
 
+@functools.lru_cache(maxsize=256)
 def make_horse_rig(coat=None, trim=None, scale=1.0):
+    """Memoizzata: un rig e' immutabile (solve() costruisce ogni volta una
+    tabella nuova), quindi due attori con gli stessi parametri possono condividere
+    lo stesso rig. E non e' solo memoria: la cache dei render e' indicizzata su
+    `id(rig)`, quindi rig separati significa due cache separate e il cast smette
+    di riusare le pose degli altri."""
     # Canvas headroom also covers the nose during the forward gallop phase.
     return _horse(coat, trim, scale).build(int(145 * scale), int(145 * scale))
 
@@ -391,9 +398,11 @@ def _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
     return b
 
 
+@functools.lru_cache(maxsize=256)
 def make_human_rig(scale=1.0, steel=STEEL, steel_d=STEEL_D, cloth=CRIMSON,
                    cloth_d=CRIMSON_D, weapon="sword", plume=True, shield=True,
                    crest=None, lance=False, kettle=False):
+    """Memoizzata come make_horse_rig: stesso rig, stessa cache dei render."""
     b = _human(scale, steel, steel_d, cloth, cloth_d, weapon, plume, shield,
                crest, lance, kettle)
     # the lance needs canvas room to the right; the plume room above. The

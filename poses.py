@@ -39,9 +39,23 @@ _FOOT = {
 LANCE_REST = 0.02
 COUCH_ARM_N, COUCH_FA_N = -0.16, 0.30
 
+# Una posa e' una funzione di numeri continui, ma la rasterizzazione costa 6-7 ms
+# e la cache serve solo se le posi sono poche e ricorrenti: quantizzando gli
+# ingressi qui, l'insieme delle posi di un rig diventa chiuso e finito, la
+# cache si scalda e resta calda. I gradini sono sotto il pixel sulla punta di
+# un arto, quindi non si vedono.
+_CYC = 32      # passi per ciclo di camminata
+_AMP = 12      # passi per parametro continuo: attacco, quota, velocita'
+
+
+def _q(v, steps=_AMP):
+    return round(v * steps) / steps
+
 
 def horse_pose(speed, phase, air=0.0, panic=0.0):
     """Four offset leg cycles: hind push, suspension, fore reach and gather."""
+    speed, phase = _q(speed), _q(phase, _CYC)
+    air, panic = _q(air), _q(panic)
     p = TAU * phase
     a = {}
     motion = min(1.0, max(0.0, speed) / 7.0) * (1 - air)
@@ -138,6 +152,8 @@ def rider_pose(phase, riding=1.0, moving=0.0, air=0.0, attack=0.0, reach=0.0, co
     -> (angles, hip_lift). hip_lift raises the whole rider, which is how the
     mounted pose clears the horse's back.
     """
+    phase = _q(phase, _CYC)
+    attack, reach, air = _q(attack), _q(reach), _q(air)
     p = TAU * phase
     riding = max(0.0, min(1.0, riding))
     a = {name: lerp(_FOOT[name], _RIDE[name], riding) for name in _RIDE}
@@ -204,7 +220,7 @@ def rider_pose(phase, riding=1.0, moving=0.0, air=0.0, attack=0.0, reach=0.0, co
 
 def dead_pose(progress, on_horse=False):
     """Death collapse: actor falls back, knees buckle, body rests on the ground."""
-    p = ease(min(1.0, progress / 0.55))
+    p = ease(min(1.0, _q(progress, _AMP) / 0.55))
     a = {
         "torso": lerp(0.06, -1.15, p),
         "neck": lerp(0.0, -0.25, p),

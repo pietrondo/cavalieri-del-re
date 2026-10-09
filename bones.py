@@ -15,6 +15,7 @@ child joint, so a bad rest pose fails loudly instead of drawing garbage.
 
 import functools
 import math
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 import pygame
@@ -271,7 +272,7 @@ def _draw(surf, b, gx, gy, ga, dark, occl):
                             quad(r0 * 0.9, r1 * 0.9, r0 * 0.9 * sign))
 
 
-_RENDER_CACHE = {}
+_RENDER_CACHE = OrderedDict()
 _CACHE_MAX = 768
 # Angles are snapped to this step before the cache lookup. 0.02 rad is ~1 px at
 # the tip of a limb: invisible on screen, but it turns a continuous animation
@@ -300,7 +301,8 @@ def render(rig, angles=None, root=(0.0, 0.0), dark=1.0, flip=False,
     key = (id(rig), ka, kr, round(dark, 2), flip, occluded)
     hit = _RENDER_CACHE.get(key)
     if hit is not None:
-        return hit
+        _RENDER_CACHE.move_to_end(key)     # LRU: questa posa e' calda
+        return hit[1], hit[2]
 
     tr = rig.solve(angles, root)
     # Most geometry is above the feet anchor. Keep enough room for hooves and
@@ -317,11 +319,19 @@ def render(rig, angles=None, root=(0.0, 0.0), dark=1.0, flip=False,
     out = pygame.transform.smoothscale(surf, (rig.w * 2, out_h))
     if flip:
         out = pygame.transform.flip(out, True, False)
-    res = (_contour(out), tr)
+    # il rig resta vivo finche' la sua voce e' in cache: la chiave usa id(rig),
+    # e senza questo riferimento un rig liberato (le fabbriche sono memoizzate e
+    # possono evictare) lascerebbe libero il suo indirizzo a un rig nuovo, che
+    # si troverebbe a leggere la sprite del vecchio.
     if len(_RENDER_CACHE) >= _CACHE_MAX:
-        _RENDER_CACHE.clear()
-    _RENDER_CACHE[key] = res
-    return res
+        # LRU, non un clear() e nemmeno FIFO. Il livello vero arriva a 6 nemici a
+        # schermo e a 23 rig distinti: l'insieme delle pose in uso supera il tetto,
+        # quindi conta buttare fuori quelle fredde. Un clear() rifaceva il cast
+        # intero, FIFO buttava via anche le pose della posa in corso.
+        for _ in range(_CACHE_MAX // 4):
+            _RENDER_CACHE.popitem(last=False)
+    _RENDER_CACHE[key] = (rig, _contour(out), tr)
+    return _RENDER_CACHE[key][1], tr
 
 
 CONTOUR_R = 1  # px of dark ring added around the whole silhouette
