@@ -275,6 +275,9 @@ def _pebbles():
 PEBBLES = _pebbles()
 MEADOW_ROWS = [(MEADOW + i * 2.0, _mix(GRASS_D, GRASS_L, (i / 8.0) ** 1.3))
                for i in range(9)]
+# il prato non e' un riempimento unico: scende in ombra verso il bordo inferiore
+GRASS_ROWS = [(MEADOW + 14 + i * 7.0, _mix(GRASS, GRASS_D, (i / 9.0) ** 1.3))
+              for i in range(int((H - MEADOW - 14) / 7.0) + 1)]
 
 STONE_DARK_GREY = (92, 96, 104)
 
@@ -288,17 +291,69 @@ def _tufts():
 
 TUFTS = _tufts()
 
+# fascia che i ciuffi possono occupare sopra la strada, per non invaderla
+TUFT_BAND = 15.0
+
+
 def _draw_tufts(surf, cam_x):
     """Tre fili a ventaglio per ciuffo, due toni: il prato ha una grana."""
     for wx, t, k in TUFTS:
         sx = wx - cam_x
         if not -20 < sx < W + 20:
             continue
-        base = MEADOW + 15 + t * 4.0
+        base = MEADOW + 15 + t * TUFT_BAND
         h = (3.0 + t * 4.0) * k
         col = GRASS_L if t > 0.6 else GRASS_D
         for lean in (-0.45, 0.0, 0.45):
             _l(surf, col, (sx, base), (sx + lean * h, base - h), 1)
+
+
+def _grit():
+    """Grana della carreggiata: pezzetti di terra chiara e scura, come i
+    ciottoli scorrono col mondo e crescono verso il bordo vicino."""
+    rng, out, x = random.Random(41), [], ROAD_X0
+    while x < ROAD_X1:
+        x += rng.uniform(6, 24)
+        out.append((x, rng.random(), rng.uniform(0.5, 1.7), rng.random()))
+    return out
+
+
+GRIT = _grit()
+
+
+def _draw_grit(surf, cam_x):
+    for wx, t, k, light in GRIT:
+        sx = wx - cam_x
+        if not -8 < sx < W + 8:
+            continue
+        wy = ROAD_TOP + 7 + t * (H + 6 - ROAD_TOP)
+        col = _tone(ROAD_L, 1.14) if light > 0.5 else _tone(ROAD_D, 0.84)
+        _l(surf, col, (sx, wy), (sx + 3.0 * k, wy - 0.6 * k), 1)
+
+
+def _fringe():
+    """Ciuffi sul ciglio della strada. Il bordo della carreggiata e' una
+    poligono e si legge come un taglio netto: questi lo dissolvono nell'erba."""
+    rng, out, x = random.Random(61), [], ROAD_X0
+    while x < ROAD_X1:
+        x += rng.uniform(7, 20)
+        out.append((x, rng.uniform(0.5, 1.5), rng.random()))
+    return out
+
+
+FRINGE = _fringe()
+
+
+def _draw_fringe(surf, cam_x):
+    for wx, k, t in FRINGE:
+        sx = wx - cam_x
+        if not -12 < sx < W + 12:
+            continue
+        y = ROAD_TOP + _road_edge(wx) * 0.8 - 1.0
+        h = (4.0 + t * 5.0) * k
+        col = GRASS_L if t > 0.55 else GRASS_D
+        for lean in (-0.55, 0.05, 0.6):
+            _l(surf, col, (sx, y), (sx + lean * h, y - h), 1)
 
 _STONES = []
 _rng_s, _x_s = random.Random(29), 0.0
@@ -336,7 +391,8 @@ def draw_ground(surf, cam_x):
     _r(surf, _mix(GRASS_D, HILL, 0.45), 0, MEADOW - 8, W, 12)
     for y, col in MEADOW_ROWS:                     # il verde scende al terreno
         _r(surf, col, 0, y, W, 3)
-    _r(surf, GRASS, 0, MEADOW + 14, W, H)
+    for y, col in GRASS_ROWS:                     # e il prato ha ombra in fondo
+        _r(surf, col, 0, y, W, 8)
     _draw_tufts(surf, cam_x)
     _draw_stones(surf, cam_x)
     _road_track(surf, cam_x, 1.4, _mix(GRASS_D, ROAD_D, 0.45), -4.0)  # orlo
@@ -354,6 +410,8 @@ def draw_ground(surf, cam_x):
             if prev:
                 _l(surf, _tone(ROAD_D, 0.74), prev, p, 6)  # solchi piu' marcati
             prev, x = p, x + 34
+    _draw_grit(surf, cam_x)
+    _draw_fringe(surf, cam_x)
     for wx, wy, t, off, lit in PEBBLES:     # ciottoli: grandi in primo piano
         sx = wx - cam_x                   # e piccoli in lontananza
         if -20 < sx < W + 20:

@@ -16,6 +16,7 @@ import pygame
 
 import sprites
 import world
+from pickup import PICKUPS, Pickup
 
 W, H = 960, 540
 FPS = 60
@@ -65,25 +66,44 @@ def font(size):
 
 
 _SHADOWS = {}
+SHADOW_LIFT = 96.0   # px di quota a cui l'ombra di contatto e' sparita
+SHADOW_SIDE = 0.07   # la luce viene dall'alto a sinistra: la pozza scivola a destra
 
 
-def contact_shadow(surf, x, y, w, alpha=110):
-    """Multi-layer soft contact shadow with ambient penumbra and core."""
-    key = (round(w), alpha)
-    if key not in _SHADOWS:
-        _SHADOWS[key] = _build_shadow(w, alpha)
-    s = _SHADOWS[key]
-    surf.blit(s, (int(x - s.get_width() // 2), int(y - s.get_height() * 0.5)))
+def contact_shadow(surf, x, y, w, alpha=110, height=0.0):
+    """Ombra di contatto morbida, sempre sul terreno: un attore in aria tiene
+    l'ombra sulla strada, piu' piccola e piu' spenta, invece di portarsela in
+    cielo insieme ai piedi.
+
+    `pygame.draw` non sfuma, quindi il decadimento e' calcolato per pixel su
+    una griglia 1:4 e poi smoothscale: due ellissi in fila lasciavano un gradino
+    netto che si leggeva come un'etichetta appiccicata sulla strada.
+    """
+    if height > 0:
+        k = max(0.0, 1.0 - height / SHADOW_LIFT) ** 1.5
+        w, alpha = w * (0.45 + 0.55 * k), alpha * k
+    key = (round(w), int(round(alpha / 12.0)) * 12)
+    s = _SHADOWS.get(key)
+    if s is None:
+        s = _SHADOWS[key] = _build_shadow(key[0], key[1])
+    surf.blit(s, (int(x - s.get_width() * 0.5 + s.get_width() * SHADOW_SIDE),
+                  int(y - s.get_height() * 0.5)))
 
 
 def _build_shadow(w, alpha):
-    h = max(6, int(w * 0.36))
-    sw, sh = int(w * 2.2), h + 4
-    s = pygame.Surface((sw, sh), pygame.SRCALPHA)
-    pygame.draw.ellipse(s, (14, 12, 18, int(alpha * 0.45)), s.get_rect())
-    core_rect = pygame.Rect(int(sw * 0.18), int(sh * 0.22), int(sw * 0.64), int(sh * 0.56))
-    pygame.draw.ellipse(s, (10, 8, 14, int(alpha * 0.85)), core_rect)
-    return s
+    h = max(5, int(w * 0.30))
+    sw, sh = int(w * 2.0) + 4, h + 4
+    lw, lh = max(6, sw // 4), max(6, sh // 4)
+    lo = pygame.Surface((lw, lh), pygame.SRCALPHA)
+    cx, cy = (lw - 1) * 0.5, (lh - 1) * 0.5
+    for y in range(lh):
+        ny = (y - cy) / cy
+        for x in range(lw):
+            nx = (x - cx) / cx
+            d = math.sqrt(nx * nx + ny * ny)
+            if d < 1.0:
+                lo.set_at((x, y), (18, 14, 24, int(alpha * (1.0 - d) ** 1.5)))
+    return pygame.transform.smoothscale(lo, (sw, sh))
 
 
 _VEILS = {}
@@ -97,6 +117,21 @@ def _veil(rgba):
         v.fill(rgba)
         _VEILS[rgba] = v
     return _VEILS[rgba]
+
+
+_GRADE = None
+
+
+def _grade():
+    """Il crepuscolo riversato sulla scena DOPO gli attori. Il cielo e' caldo e
+    basso: senza questo passaggio i personaggi restano illuminati da una luce
+    che nel quadro non esiste, e si leggono come bollati sul fondo."""
+    global _GRADE
+    if _GRADE is None:
+        s = pygame.Surface((W, H), pygame.SRCALPHA)
+        world._add_glow(s, 980, 300, (250, 166, 102), 640, H - 108, 2.2, 54)
+        _GRADE = s
+    return _GRADE
 
 
 # --------------------------------------------------------------------------
@@ -128,7 +163,8 @@ class Actor:
         return {}, 0.0
 
     def draw(self, surf, cam_x, dark=1.0):
-        contact_shadow(surf, self.x - cam_x, self.y, 22 * HUMAN_S)
+        contact_shadow(surf, self.x - cam_x, GROUND, 22 * HUMAN_S,
+                       height=GROUND - self.y)
         ang, lift = self.pose()
         img, _ = sprites.render_human(self.rig, ang, (0.0, lift), dark=dark,
                                       flip=self.face < 0)
@@ -147,7 +183,8 @@ class Horse:
         self.y = GROUND
 
     def draw(self, surf, cam_x, dark=1.0):
-        contact_shadow(surf, self.x - cam_x, self.y, 48 * HORSE_S)
+        contact_shadow(surf, self.x - cam_x, GROUND, 48 * HORSE_S,
+                       height=GROUND - self.y)
         ang, bob = sprites.horse_pose(self.speed, self.phase, panic=0.25)
         img, _ = sprites.render_horse(self.rig, ang, (0.0, bob), dark=dark,
                                       flip=self.face < 0)
@@ -257,8 +294,8 @@ class Guard(Actor):
             if h_alpha > 0:
                 self.horse.draw(surf, cam_x, dark=dark)
         if not self.on_horse:
-            contact_shadow(surf, self.x - cam_x, self.y, 22 * HUMAN_S,
-                           alpha=int(95 * alpha))
+            contact_shadow(surf, self.x - cam_x, GROUND, 22 * HUMAN_S,
+                           alpha=int(95 * alpha), height=GROUND - self.y)
         if alpha > 0:
             ang, lift = self.pose()
             img, _ = sprites.render_human(self.rig, ang,
@@ -537,7 +574,8 @@ class Knight(Actor):
         if -260 < self.horse.x - cam_x < W + 260:
             self.horse.draw(surf, cam_x)
         if not self.on_horse:
-            contact_shadow(surf, self.x - cam_x, self.y, 22 * HUMAN_S)
+            contact_shadow(surf, self.x - cam_x, GROUND, 22 * HUMAN_S,
+                           height=GROUND - self.y)
         ang, lift = self.pose()
         # only swap once the arms are (almost) fully couched, and never mid
         # dismount when the rider is off the saddle but still in the air
@@ -553,50 +591,8 @@ class Knight(Actor):
 
 
 # --------------------------------------------------------------------------
-# Pickups + fx
+# fx
 # --------------------------------------------------------------------------
-PICKUPS = {
-    "heart": ((196, 54, 58), "vita"),
-    "shield": ((72, 122, 196), "scudo 6s"),
-    "gold": ((214, 176, 74), "oro"),
-}
-
-
-class Pickup:
-    def __init__(self, x, kind):
-        self.x = float(x)
-        self.y = GROUND - 34.0
-        self.kind = kind
-        self.t = random.uniform(0, 6.0)
-        self.land = 0.0
-        self.taken = False
-
-    def update(self, dt):
-        self.t += dt
-        self.land = min(1.0, self.land + dt * 3.5)
-
-    def draw(self, surf, cam_x):
-        c = PICKUPS[self.kind][0]
-        x = int(self.x - cam_x)
-        y = int(self.y + math.sin(self.t * 2.4) * 4.0 - 12 * (1 - self.land))
-        r = int(13 * (1.0 + 0.22 * math.sin(self.t * 3.0)))
-        halo = pygame.Surface((2 * r + 10, 2 * r + 10), pygame.SRCALPHA)
-        pygame.draw.circle(halo, (*c, 46), (r + 5, r + 5), r + 4)
-        surf.blit(halo, (x - r - 5, y - r - 5))
-        pygame.draw.circle(surf, (52, 44, 40), (x, y), r)
-        pygame.draw.circle(surf, c, (x, y), r - 3)
-        if self.kind == "heart":
-            pygame.draw.polygon(surf, (255, 216, 216), [
-                (x - 6, y - 1), (x - 6, y + 4), (x, y + 8),
-                (x + 6, y + 4), (x + 6, y - 1), (x, y + 3)])
-        elif self.kind == "shield":
-            pygame.draw.polygon(surf, (224, 236, 250), [
-                (x, y - 7), (x + 6, y - 4), (x + 5, y + 4),
-                (x, y + 8), (x - 5, y + 4), (x - 6, y - 4)])
-        else:
-            pygame.draw.circle(surf, (255, 242, 196), (x, y), r - 7)
-
-
 class Fx:
     def __init__(self):
         self.parts, self.pops, self.rings, self.slashes = [], [], [], []
@@ -929,6 +925,7 @@ def run():
             if abs(e.tx - draw_cam - W / 2) < W / 2 + 160:  # cull off-screen
                 e.draw(screen, draw_cam, dark=0.72 if e.flash > 0 else 1.0)
         knight.draw(screen, draw_cam)
+        screen.blit(_grade(), (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
         if knight.flash > 0:
             screen.blit(_veil((255, 90, 80, int(70 * knight.flash / 0.22))), (0, 0))
         fx.draw(screen, draw_cam)

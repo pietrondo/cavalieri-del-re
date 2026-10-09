@@ -167,6 +167,7 @@ cavalieri-del-re/
 ├── requirements.txt     pygame>=2.5
 ├── .gitignore
 ├── game.py              livello 1: personaggi, combattimento, raccolta, HUD, ciclo principale
+├── pickup.py            i provviste sulla strada: cuore, scudo, oro
 ├── sprites.py           il sistema a scheletro: Bone, Rig, Builder, FK, rasterizzazione e pose
 ├── world.py             scena: cielo, colline, castello, portone, strada, obiettivo
 ├── tools/

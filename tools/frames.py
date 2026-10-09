@@ -83,10 +83,10 @@ def main():
         sprites.blit(s, img, guard, gx - cam, ground)
 
         for n, kind in enumerate(("heart", "shield", "gold")):
-            px, py = cam + 120 + n * 90, ground - 40
-            col = ((196, 54, 58), (72, 122, 196), (214, 176, 74))[n]
-            pygame.draw.circle(s, (52, 44, 40), (int(px - cam), int(py)), 13)
-            pygame.draw.circle(s, col, (int(px - cam), int(py)), 10)
+            p = game.Pickup(cam + 120 + n * 90, kind)
+            p.t, p.land = 1.2, 1.0
+            p.draw(s, cam)
+        s.blit(game._grade(), (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
         strip.blit(s, (0, i * H))
         pygame.draw.line(strip, (0, 0, 0), (0, i * H), (W, i * H))
 

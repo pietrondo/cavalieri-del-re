@@ -325,12 +325,21 @@ def render(rig, angles=None, root=(0.0, 0.0), dark=1.0, flip=False,
 
 
 CONTOUR_R = 1  # px of dark ring added around the whole silhouette
+# the silhouette copied and subtracted back out along this vector leaves a
+# crescent on the lower-right: the side the dusk horizon is on
+RIM_OFF = (-2, -1)
+RIM_WARM = (255, 148, 88)
 
 
 def _contour(img):
     """A single dark ring around the whole figure, so the cast separates from
     the background. The per-bone outline still separates limbs from each other;
-    this one is only for the outer edge, which per-bone outlines cannot give."""
+    this one is only for the outer edge, which per-bone outlines cannot give.
+
+    On top of it, a warm crescent on the horizon side. Shading inside a bone is
+    built from one fixed cool key light; without the dusk coming back off the
+    sky the cast reads as a cut-out laid on the road instead of standing in it.
+    """
     halo = img.copy()
     halo.fill((10, 9, 15, 255), special_flags=pygame.BLEND_RGBA_MULT)
     out = pygame.Surface(img.get_size(), pygame.SRCALPHA)
@@ -338,6 +347,10 @@ def _contour(img):
     for dx, dy in ((-r, 0), (r, 0), (0, -r), (0, r)):
         out.blit(halo, (dx, dy))
     out.blit(img, (0, 0))
+    rim = img.copy()
+    rim.blit(img, RIM_OFF, special_flags=pygame.BLEND_RGBA_SUB)
+    rim.fill((*RIM_WARM, 255), special_flags=pygame.BLEND_RGBA_MULT)
+    out.blit(rim, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
     return out
 
 
