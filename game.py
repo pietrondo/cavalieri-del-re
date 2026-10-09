@@ -364,8 +364,12 @@ class Knight(Actor):
         # snap to 0 at the tail: an asymptotic decay never reaches it, and any
         # residual charge would keep rider_pose in the reach branch and block
         # the sword attack forever.
+        # stow the lance faster than it is brought down: otherwise the reach
+        # pose lingers on horseback and the player sees a lance while the hit
+        # still lands at sword reach
+        rate = 6.0 if self.gallop else 16.0
         self.charge += ((1.0 if self.gallop else 0.0) - self.charge) \
-            * min(1.0, dt * 6.0)
+            * min(1.0, dt * rate)
         if self.charge < 0.01:
             self.charge = 0.0
 
@@ -535,7 +539,9 @@ class Knight(Actor):
         if not self.on_horse:
             contact_shadow(surf, self.x - cam_x, self.y, 22 * HUMAN_S)
         ang, lift = self.pose()
-        rig = self.rig_lance if self.charge > 0.6 else self.rig
+        # only swap once the arms are (almost) fully couched, and never mid
+        # dismount when the rider is off the saddle but still in the air
+        rig = self.rig_lance if self.charge > 0.85 and self.on_horse else self.rig
         img, _ = sprites.render_human(rig, ang, (0.0, lift),
                                       flip=self.face < 0)
         sprites.blit(surf, img, rig, self.x - cam_x, self.y)

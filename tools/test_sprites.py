@@ -85,7 +85,8 @@ class SpriteRigTests(unittest.TestCase):
                     dict(weapon="sword", plume=False, shield=True),
                     dict(weapon="spear", plume=False, shield=False),
                     dict(weapon="none", plume=False, shield=False,
-                         crest=sprites.GOLD, lance=True))
+                         crest=sprites.GOLD, lance=True),
+                    dict(weapon="none", lance=True, shield=False))
         for kwargs in variants:
             rig = sprites.make_human_rig(game.HUMAN_S, **kwargs)
             for riding, attack, reach in ((0, 0, 0), (0, .6, 0),
@@ -213,6 +214,24 @@ class SpriteRigTests(unittest.TestCase):
                                                   reach=phase if row == "enemy mounted" else 0)
                     self.assertEqual(len(roots), 1)
                     self.assertAlmostEqual(roots[0], lift - game.SEAT)
+
+
+class KnightChargeTests(unittest.TestCase):
+    def test_charge_reaches_one_then_stows_to_zero(self):
+        """The lance charge must snap back to 0 on release: an asymptotic decay
+        kept rider_pose in the reach branch and silently blocked the sword."""
+        knight = game.Knight(0.0)
+        keys = {key: False for key in
+                (pygame.K_a, pygame.K_d, pygame.K_LEFT, pygame.K_RIGHT,
+                 pygame.K_w, pygame.K_UP, pygame.K_LSHIFT, pygame.K_RSHIFT)}
+        keys[pygame.K_RSHIFT] = keys[pygame.K_d] = True
+        for _ in range(40):
+            knight.update(1 / 60, keys, [])
+        self.assertGreater(knight.charge, 0.9)
+        keys[pygame.K_RSHIFT] = False
+        for _ in range(90):
+            knight.update(1 / 60, keys, [])
+        self.assertEqual(knight.charge, 0.0)
 
 
 if __name__ == "__main__":

@@ -766,9 +766,9 @@ FORE_DOWN = 1.00
 _RIDE = {
     "torso": 0.05, "neck": -0.12, "head": -0.06,
     "arm_f": -0.30, "fa_f": -0.55,
-    # sword hand carried low at the hip, blade forward-down: brandishing it
-    # straight forward read as a frozen lunge, not a rider at rest
-    "arm_n": 0.05, "fa_n": -0.30, "hand": 0.20,
+    # rider's sword arm: held up and forward, elbow folded so the blade reads
+    # as a ready guard rather than a low carry or a frozen outstretched lunge
+    "arm_n": -0.35, "fa_n": -0.22, "hand": 0.00,
     "thigh": -0.35, "shin": 0.55, "foot": 0.22,
     "thigh_f": -0.30, "shin_f": 0.50, "foot_f": 0.20,
     "plume": -0.25, "crest": -0.20,
@@ -776,7 +776,7 @@ _RIDE = {
 _FOOT = {
     "torso": 0.06, "neck": 0.0, "head": 0.0,
     "arm_f": 0.06, "fa_f": -0.18,
-    "arm_n": 0.08, "fa_n": -0.16, "hand": 0.22,
+    "arm_n": 0.08, "fa_n": -0.26, "hand": 0.00,
     "thigh": 0.0, "shin": 0.0, "foot": 0.0,
     "thigh_f": 0.0, "shin_f": 0.0, "foot_f": 0.0,
     "plume": 0.0, "crest": 0.0,
